@@ -1251,7 +1251,7 @@ security_collateral_df = pd.DataFrame()
 asset_collateral_df = pd.DataFrame()
 security_collateral_status = SourceStatus("Short/Collateral · ценные бумаги", "missing", "источник не запрашивался")
 asset_collateral_status = SourceStatus("Short/Collateral · валюта/металлы", "missing", "источник не запрашивался")
-if active_page in {"Мониторинг", "Обзор"}:
+if active_page == "Обзор":
     if COLLATERAL_BUNDLE_KEY not in st.session_state:
         st.session_state[COLLATERAL_BUNDLE_KEY] = load_collateral_cached()
     (
@@ -1368,23 +1368,6 @@ if active_page == "Мониторинг":
         axis=1,
     )
 
-    short_bans, short_limits, collateral_flags, collateral_limits = [], [], [], []
-    for _, row in display.iterrows():
-        info = lookup_collateral(row.get("assetcode"), security_collateral_df, asset_collateral_df)
-        if info is None:
-            short_bans.append("—"); short_limits.append(None); collateral_flags.append("—"); collateral_limits.append(None)
-            continue
-        ban = info.get("short_sale_ban")
-        accepted = info.get("collateral_accepted")
-        short_bans.append(yes_no_text(ban))
-        short_limits.append(info.get("short_sale_limit"))
-        collateral_flags.append(yes_no_text(accepted))
-        collateral_limits.append(info.get("collateral_limit_pct"))
-    display["Запрет short"] = short_bans
-    display["Лимит short"] = ["—" if is_missing(value) else fmt_number(value, 2) for value in short_limits]
-    display["В обеспечение"] = collateral_flags
-    display["Лимит обеспечения, %"] = ["—" if is_missing(value) else f"{fmt_number(value, 0)}%" for value in collateral_limits]
-
     table = display.rename(columns={
         "assetcode": "БА", "group": "Группа", "secid": "Контракт", "price": "Цена",
         "lowlimit": "LOW", "highlimit": "HIGH", "distance_low_pct": "До LOW, %",
@@ -1393,7 +1376,7 @@ if active_page == "Мониторинг":
     })[[
         "Статус", "БА", "Группа", "Контракт", "Цена", "Источник цены", "LOW", "HIGH",
         "До LOW, %", "До HIGH, %", "Направление", "До ближайшей, %", "Положение, %",
-        "Special", "Запрет short", "Лимит short", "В обеспечение", "Лимит обеспечения, %",
+        "Special",
     ]]
 
     event = st.dataframe(
@@ -1432,8 +1415,7 @@ if active_page == "Мониторинг":
         "WATCH/CRITICAL определяются выбранным пользователем процентным порогом до LOW/HIGH. "
         "↔ CENTER означает одинаковое расстояние до LOW и HIGH на отображаемой точности. "
         "Источник цены показывает фактически использованное поле MOEX ISS. "
-        "Short/Collateral относятся к базисному активу на соответствующем рынке НКЦ, а не к фьючерсной серии. "
-        f"Ценные бумаги: {security_collateral_status.state}; валюта/металлы: {asset_collateral_status.state}."
+        "Параметры short/collateral вынесены из Risk Radar в детальный обзор выбранного базисного актива."
     )
     st.stop()
 
@@ -1697,9 +1679,9 @@ if active_page == "Обзор":
         short_ban_text = yes_no_text(short_ban)
         collateral_text = yes_no_text(collateral_accept)
         st.markdown(
-            '<div class="section-head"><div class="section-kicker">Базисный актив · НКЦ</div>'
-            '<div class="section-title">Короткие продажи и приём в обеспечение</div>'
-            '<div class="section-subtitle">Эти признаки относятся к базисному активу на фондовом / валютном рынке НКЦ, а не к фьючерсной серии.</div></div>',
+            '<div class="section-head"><div class="section-kicker">Базисный актив · другие рынки НКЦ</div>'
+            '<div class="section-title">Параметры базисного актива на других рынках НКЦ</div>'
+            '<div class="section-subtitle">Короткие продажи и приём в обеспечение относятся к самому базисному активу на фондовом / валютном рынке НКЦ, а не к фьючерсной серии.</div></div>',
             unsafe_allow_html=True,
         )
         parameter_strip([
