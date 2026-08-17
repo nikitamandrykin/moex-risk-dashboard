@@ -1336,10 +1336,12 @@ if active_page == "Мониторинг":
     attention_count = int(monitor_df["risk_status"].isin(attention_states).sum())
     high_attention = int(((monitor_df["nearest_side"] == "HIGH") & monitor_df["risk_status"].isin(attention_states)).sum())
     low_attention = int(((monitor_df["nearest_side"] == "LOW") & monitor_df["risk_status"].isin(attention_states)).sum())
+    center_attention = int(((monitor_df["nearest_side"] == "CENTER") & monitor_df["risk_status"].isin(attention_states)).sum())
     special_count = int(monitor_df["special_mode"].sum())
     r1, r2, r3, r4 = st.columns(4, gap="small")
     with r1:
-        kpi_card("Требуют внимания", str(attention_count), f"из {len(monitor_df)} отслеживаемых БА", "risk" if attention_count else "market")
+        attention_meta = f"из {len(monitor_df)} отслеживаемых БА" + (f" · равноудалены: {center_attention}" if center_attention else "")
+        kpi_card("Требуют внимания", str(attention_count), attention_meta, "risk" if attention_count else "market")
     with r2:
         kpi_card("К верхней границе", str(high_attention), f"≤ {fmt_number(attention_threshold, 2)}% до HIGH", "risk" if high_attention else "market")
     with r3:
@@ -1353,7 +1355,14 @@ if active_page == "Мониторинг":
         "CRITICAL": "🔴 CRITICAL", "WATCH": "🟠 WATCH", "NORMAL": "🟢 NORMAL",
     }
     display["Статус"] = display["risk_status"].map(status_icons).fillna(display["risk_status"])
-    display["Направление"] = display["nearest_side"].map({"HIGH": "↑ HIGH", "LOW": "↓ LOW"}).fillna("—")
+    display["Направление"] = display["nearest_side"].map({"HIGH": "↑ HIGH", "LOW": "↓ LOW", "CENTER": "↔ CENTER"}).fillna("—")
+    price_source_labels = {
+        "last": "LAST",
+        "settleprice": "SETTLE",
+        "lastsettleprice": "LAST SETTLE",
+        "prevsettleprice": "PREV SETTLE",
+    }
+    display["Источник цены"] = display["price_source"].map(price_source_labels).fillna("—")
     display["Special"] = display.apply(
         lambda row: ("SPECIAL" + (f" · {row['special_group']}" if row.get("special_group") else "")) if row.get("special_mode") else "",
         axis=1,
@@ -1372,9 +1381,9 @@ if active_page == "Мониторинг":
         collateral_flags.append(yes_no_text(accepted))
         collateral_limits.append(info.get("collateral_limit_pct"))
     display["Запрет short"] = short_bans
-    display["Лимит short"] = short_limits
+    display["Лимит short"] = ["—" if is_missing(value) else fmt_number(value, 2) for value in short_limits]
     display["В обеспечение"] = collateral_flags
-    display["Лимит обеспечения, %"] = collateral_limits
+    display["Лимит обеспечения, %"] = ["—" if is_missing(value) else f"{fmt_number(value, 0)}%" for value in collateral_limits]
 
     table = display.rename(columns={
         "assetcode": "БА", "group": "Группа", "secid": "Контракт", "price": "Цена",
@@ -1382,7 +1391,7 @@ if active_page == "Мониторинг":
         "distance_high_pct": "До HIGH, %", "nearest_pct": "До ближайшей, %",
         "position_pct": "Положение, %",
     })[[
-        "Статус", "БА", "Группа", "Контракт", "Цена", "LOW", "HIGH",
+        "Статус", "БА", "Группа", "Контракт", "Цена", "Источник цены", "LOW", "HIGH",
         "До LOW, %", "До HIGH, %", "Направление", "До ближайшей, %", "Положение, %",
         "Special", "Запрет short", "Лимит short", "В обеспечение", "Лимит обеспечения, %",
     ]]
@@ -1398,8 +1407,9 @@ if active_page == "Мониторинг":
             "До HIGH, %": st.column_config.NumberColumn(format="%.2f%%"),
             "До ближайшей, %": st.column_config.NumberColumn(format="%.2f%%"),
             "Положение, %": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f%%"),
-            "Лимит short": st.column_config.NumberColumn(format="%.2f"),
-            "Лимит обеспечения, %": st.column_config.NumberColumn(format="%.0f%%"),
+            "Источник цены": st.column_config.TextColumn(
+                help="Поле MOEX ISS, использованное как цена: LAST → SETTLEPRICE → LASTSETTLEPRICE → PREVSETTLEPRICE."
+            ),
         },
     )
     selected_rows = []
@@ -1420,6 +1430,8 @@ if active_page == "Мониторинг":
 
     st.caption(
         "WATCH/CRITICAL определяются выбранным пользователем процентным порогом до LOW/HIGH. "
+        "↔ CENTER означает одинаковое расстояние до LOW и HIGH на отображаемой точности. "
+        "Источник цены показывает фактически использованное поле MOEX ISS. "
         "Short/Collateral относятся к базисному активу на соответствующем рынке НКЦ, а не к фьючерсной серии. "
         f"Ценные бумаги: {security_collateral_status.state}; валюта/металлы: {asset_collateral_status.state}."
     )
