@@ -1,0 +1,14 @@
+from pathlib import Path
+
+text = Path("app.py").read_text(encoding="utf-8")
+monitor_start = text.index('if active_page == "Мониторинг":')
+overview_start = text.index('selector_contract_col = None', monitor_start)
+monitor = text[monitor_start:overview_start]
+assert '"Запрет short"' not in monitor
+assert '"Лимит short"' not in monitor
+assert '"В обеспечение"' not in monitor
+assert '"Лимит обеспечения, %"' not in monitor
+assert 'Параметры short/collateral вынесены из Risk Radar' in monitor
+assert 'if active_page == "Обзор":' in text
+assert 'Параметры базисного актива на других рынках НКЦ' in text
+print("UI structure: short/collateral only in detailed overview")
