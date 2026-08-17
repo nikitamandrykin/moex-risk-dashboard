@@ -10,11 +10,13 @@ contracts = pd.DataFrame([
     {"assetcode":"AAA","secid":"AAA-9.26","shortname":"на акции AAA","last":99.0,"lowlimit":80.0,"highlimit":100.0,"lasttradedate":pd.Timestamp("2026-09-15"),"openposition":100},
     {"assetcode":"BBB","secid":"BBB-9.26","shortname":"на индекс BBB","last":81.0,"lowlimit":80.0,"highlimit":100.0,"lasttradedate":pd.Timestamp("2026-09-15"),"openposition":50},
     {"assetcode":"CCC","secid":"CCC-9.26","shortname":"на акции CCC","last":90.0,"lowlimit":80.0,"highlimit":100.0,"lasttradedate":pd.Timestamp("2026-09-15"),"openposition":50},
+    {"assetcode":"DDD","secid":"DDD-9.26","shortname":"на акции DDD","last":99.5,"lowlimit":99.0,"highlimit":100.0,"lasttradedate":pd.Timestamp("2026-09-15"),"openposition":25},
 ])
 market = pd.DataFrame([
     {"assetcode":"AAA","title":"на акции AAA"},
     {"assetcode":"BBB","title":"на индекс BBB"},
     {"assetcode":"CCC","title":"на акции CCC"},
+    {"assetcode":"DDD","title":"на акции DDD"},
 ])
 special = pd.DataFrame(columns=["assetcode","parameter","start_at","end_at"])
 radar = build_market_monitor(
@@ -23,11 +25,13 @@ radar = build_market_monitor(
     attention_threshold_pct=2.0,
     critical_threshold_pct=0.75,
 )
-assert len(radar) == 3
-assert radar.iloc[0]["assetcode"] in {"AAA","BBB"}
-assert set(radar[radar["risk_status"].isin(["WATCH","CRITICAL"])]["assetcode"]) == {"AAA","BBB"}
+assert len(radar) == 4
+assert radar.iloc[0]["assetcode"] == "DDD"
+assert set(radar[radar["risk_status"].isin(["WATCH","CRITICAL"])]["assetcode"]) == {"AAA","BBB","DDD"}
 assert radar.loc[radar.assetcode.eq("AAA"), "nearest_side"].iloc[0] == "HIGH"
 assert radar.loc[radar.assetcode.eq("BBB"), "nearest_side"].iloc[0] == "LOW"
+assert radar.loc[radar.assetcode.eq("DDD"), "nearest_side"].iloc[0] == "CENTER"
+assert radar.loc[radar.assetcode.eq("DDD"), "price_source"].iloc[0] == "last"
 assert classify_asset_group("BBB", "на индекс BBB") == "Индексы"
 assert classify_asset_group("AAA", "на акции AAA") == "Акции"
 
