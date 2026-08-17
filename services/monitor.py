@@ -108,7 +108,12 @@ def build_market_monitor(
         nearest_side = "—"
         nearest_pct: float | None = None
         if low_distance is not None and high_distance is not None:
-            if low_distance <= high_distance:
+            # If both distances are visually identical at the precision shown in
+            # the monitor, do not invent a direction. Keep the smaller distance
+            # for alerting, but label the position as CENTER / equidistant.
+            if round(low_distance, 2) == round(high_distance, 2):
+                nearest_side, nearest_pct = "CENTER", min(low_distance, high_distance)
+            elif low_distance < high_distance:
                 nearest_side, nearest_pct = "LOW", low_distance
             else:
                 nearest_side, nearest_pct = "HIGH", high_distance
