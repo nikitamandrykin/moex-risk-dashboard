@@ -43,6 +43,8 @@ from services.boundaries import (
     is_currency_future,
     is_morning_session,
 )
+from services.monitor import build_market_monitor, monitor_groups
+from services.collateral import load_collateral_sources, lookup_collateral
 from services.special_params import (
     PARAMETER_META,
     active_special_parameters,
@@ -781,10 +783,36 @@ def set_session_number(key: str, value: int) -> None:
     st.session_state[key] = max(0, int(value))
 
 
+def open_contract_from_monitor(assetcode: str, secid: str) -> None:
+    code = str(assetcode or "").strip()
+    if not code:
+        return
+    st.session_state["selected_assetcode"] = code
+    if secid:
+        st.session_state[f"selected_contract_{code}"] = str(secid)
+    st.session_state["active_page"] = "Обзор"
+
+
 def cell_text(value: object) -> str:
     if value is None or pd.isna(value):
         return ""
     return str(value).strip()
+
+
+def yes_no_text(value: object) -> str:
+    if value is None or pd.isna(value):
+        return "—"
+    if isinstance(value, str):
+        text = value.strip().casefold()
+        if text in {"да", "true", "1", "yes"}:
+            return "Да"
+        if text in {"нет", "false", "0", "no"}:
+            return "Нет"
+        return "—"
+    try:
+        return "Да" if bool(value) else "Нет"
+    except Exception:
+        return "—"
 
 
 def fmt_seconds(value: object) -> str:
@@ -899,8 +927,17 @@ def load_special_calendar_cached() -> tuple[pd.DataFrame, SourceStatus]:
     )
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_collateral_cached():
+    # Optional enrichment source. It is lazy and is not part of the six
+    # critical futures datasets, so its failure never hides the core dashboard.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(load_collateral_sources, base_dir=BASE_DIR, data_dir=DATA_DIR)
+        return future.result()
+
 
 SOURCE_BUNDLE_KEY = "_source_bundle_v096"
+COLLATERAL_BUNDLE_KEY = "_collateral_bundle_v11"
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_all_sources_cached():
@@ -1117,12 +1154,14 @@ def refresh_data() -> None:
     # не очищаем глобальный st.cache_data: это защищает MOEX/NCC от лишних
     # запросов и не позволяет одному посетителю сбрасывать кэш для остальных.
     st.session_state.pop(SOURCE_BUNDLE_KEY, None)
+    st.session_state.pop(COLLATERAL_BUNDLE_KEY, None)
     if not PUBLIC_DEPLOYMENT:
         load_all_sources_cached.clear()
         load_from_config.clear()
         load_offdays_cached.clear()
         load_contracts_cached.clear()
         load_special_calendar_cached.clear()
+        load_collateral_cached.clear()
 
 
 if presentation_mode:
@@ -1201,12 +1240,24 @@ if not presentation_mode:
         )
 
 
-NAV_PAGES = ["Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]
+NAV_PAGES = ["Мониторинг", "Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]
 if st.session_state.get("active_page") not in NAV_PAGES:
-    st.session_state["active_page"] = "Обзор"
+    st.session_state["active_page"] = "Мониторинг"
 active_page = st.radio(
     "Раздел", NAV_PAGES, horizontal=True, key="active_page", label_visibility="collapsed"
 )
+
+security_collateral_df = pd.DataFrame()
+asset_collateral_df = pd.DataFrame()
+security_collateral_status = SourceStatus("Short/Collateral · ценные бумаги", "missing", "источник не запрашивался")
+asset_collateral_status = SourceStatus("Short/Collateral · валюта/металлы", "missing", "источник не запрашивался")
+if active_page in {"Мониторинг", "Обзор"}:
+    if COLLATERAL_BUNDLE_KEY not in st.session_state:
+        st.session_state[COLLATERAL_BUNDLE_KEY] = load_collateral_cached()
+    (
+        security_collateral_df, security_collateral_status,
+        asset_collateral_df, asset_collateral_status,
+    ) = st.session_state[COLLATERAL_BUNDLE_KEY]
 
 assetcodes = union_assetcodes(market_df, static_df, offdays_df, extra_df, contracts_df)
 if not assetcodes:
@@ -1233,6 +1284,147 @@ for code in assetcodes:
     else:
         asset_labels[code] = code
 
+if active_page == "Мониторинг":
+    st.markdown(
+        '<div class="section-head"><div class="section-kicker">Risk Radar</div>'
+        '<div class="section-title">Мониторинг фьючерсов по близости к ценовым границам</div>'
+        '<div class="section-subtitle">Один ближайший активный контракт на каждый БА. Статусы WATCH/CRITICAL — аналитические пороги интерфейса, а не официальные термины НКЦ.</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    f1, f2, f3 = st.columns([1.15, 1, 1], gap="large")
+    with f1:
+        attention_threshold = st.slider(
+            "Порог внимания до ближайшей границы, %",
+            min_value=0.5, max_value=10.0, value=2.0, step=0.25,
+            key="monitor_attention_threshold",
+            help="Аналитический фильтр дашборда. Он не заменяет официальный RangeFut НКЦ.",
+        )
+    monitor_df = build_market_monitor(
+        contracts_df, market_df, special_calendar_df,
+        check_at=datetime.now(ZoneInfo("Europe/Moscow")),
+        attention_threshold_pct=attention_threshold,
+        critical_threshold_pct=min(0.75, attention_threshold / 2),
+    )
+    group_options = ["Все группы"] + monitor_groups(monitor_df)
+    with f2:
+        selected_monitor_group = st.selectbox("Группа инструментов", group_options, key="monitor_group")
+    with f3:
+        selected_monitor_filter = st.selectbox(
+            "Показывать",
+            ["Все", "Требуют внимания", "К верхней границе", "К нижней границе", "Special mode"],
+            key="monitor_filter",
+        )
+
+    if monitor_df.empty:
+        st.warning("Не удалось построить мониторинг: в текущем снимке нет контрактов с доступными ценовыми границами.")
+        st.stop()
+
+    filtered_monitor = monitor_df.copy()
+    if selected_monitor_group != "Все группы":
+        filtered_monitor = filtered_monitor[filtered_monitor["group"] == selected_monitor_group]
+    attention_states = {"WATCH", "CRITICAL", "OUTSIDE LOW", "OUTSIDE HIGH"}
+    if selected_monitor_filter == "Требуют внимания":
+        filtered_monitor = filtered_monitor[filtered_monitor["risk_status"].isin(attention_states)]
+    elif selected_monitor_filter == "К верхней границе":
+        filtered_monitor = filtered_monitor[filtered_monitor["nearest_side"] == "HIGH"]
+    elif selected_monitor_filter == "К нижней границе":
+        filtered_monitor = filtered_monitor[filtered_monitor["nearest_side"] == "LOW"]
+    elif selected_monitor_filter == "Special mode":
+        filtered_monitor = filtered_monitor[filtered_monitor["special_mode"]]
+
+    attention_count = int(monitor_df["risk_status"].isin(attention_states).sum())
+    high_attention = int(((monitor_df["nearest_side"] == "HIGH") & monitor_df["risk_status"].isin(attention_states)).sum())
+    low_attention = int(((monitor_df["nearest_side"] == "LOW") & monitor_df["risk_status"].isin(attention_states)).sum())
+    special_count = int(monitor_df["special_mode"].sum())
+    r1, r2, r3, r4 = st.columns(4, gap="small")
+    with r1:
+        kpi_card("Требуют внимания", str(attention_count), f"из {len(monitor_df)} отслеживаемых БА", "risk" if attention_count else "market")
+    with r2:
+        kpi_card("К верхней границе", str(high_attention), f"≤ {fmt_number(attention_threshold, 2)}% до HIGH", "risk" if high_attention else "market")
+    with r3:
+        kpi_card("К нижней границе", str(low_attention), f"≤ {fmt_number(attention_threshold, 2)}% до LOW", "risk" if low_attention else "market")
+    with r4:
+        kpi_card("Special mode", str(special_count), "активный календарь НКЦ", "limit" if special_count else "market")
+
+    display = filtered_monitor.reset_index(drop=True).copy()
+    status_icons = {
+        "OUTSIDE LOW": "🔴 OUTSIDE LOW", "OUTSIDE HIGH": "🔴 OUTSIDE HIGH",
+        "CRITICAL": "🔴 CRITICAL", "WATCH": "🟠 WATCH", "NORMAL": "🟢 NORMAL",
+    }
+    display["Статус"] = display["risk_status"].map(status_icons).fillna(display["risk_status"])
+    display["Направление"] = display["nearest_side"].map({"HIGH": "↑ HIGH", "LOW": "↓ LOW"}).fillna("—")
+    display["Special"] = display.apply(
+        lambda row: ("SPECIAL" + (f" · {row['special_group']}" if row.get("special_group") else "")) if row.get("special_mode") else "",
+        axis=1,
+    )
+
+    short_bans, short_limits, collateral_flags, collateral_limits = [], [], [], []
+    for _, row in display.iterrows():
+        info = lookup_collateral(row.get("assetcode"), security_collateral_df, asset_collateral_df)
+        if info is None:
+            short_bans.append("—"); short_limits.append(None); collateral_flags.append("—"); collateral_limits.append(None)
+            continue
+        ban = info.get("short_sale_ban")
+        accepted = info.get("collateral_accepted")
+        short_bans.append(yes_no_text(ban))
+        short_limits.append(info.get("short_sale_limit"))
+        collateral_flags.append(yes_no_text(accepted))
+        collateral_limits.append(info.get("collateral_limit_pct"))
+    display["Запрет short"] = short_bans
+    display["Лимит short"] = short_limits
+    display["В обеспечение"] = collateral_flags
+    display["Лимит обеспечения, %"] = collateral_limits
+
+    table = display.rename(columns={
+        "assetcode": "БА", "group": "Группа", "secid": "Контракт", "price": "Цена",
+        "lowlimit": "LOW", "highlimit": "HIGH", "distance_low_pct": "До LOW, %",
+        "distance_high_pct": "До HIGH, %", "nearest_pct": "До ближайшей, %",
+        "position_pct": "Положение, %",
+    })[[
+        "Статус", "БА", "Группа", "Контракт", "Цена", "LOW", "HIGH",
+        "До LOW, %", "До HIGH, %", "Направление", "До ближайшей, %", "Положение, %",
+        "Special", "Запрет short", "Лимит short", "В обеспечение", "Лимит обеспечения, %",
+    ]]
+
+    event = st.dataframe(
+        table, use_container_width=True, hide_index=True, height=min(650, 86 + 35 * max(1, len(table))),
+        on_select="rerun", selection_mode="single-row", key="market_monitor_table",
+        column_config={
+            "Цена": st.column_config.NumberColumn(format="%.4f"),
+            "LOW": st.column_config.NumberColumn(format="%.4f"),
+            "HIGH": st.column_config.NumberColumn(format="%.4f"),
+            "До LOW, %": st.column_config.NumberColumn(format="%.2f%%"),
+            "До HIGH, %": st.column_config.NumberColumn(format="%.2f%%"),
+            "До ближайшей, %": st.column_config.NumberColumn(format="%.2f%%"),
+            "Положение, %": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f%%"),
+            "Лимит short": st.column_config.NumberColumn(format="%.2f"),
+            "Лимит обеспечения, %": st.column_config.NumberColumn(format="%.0f%%"),
+        },
+    )
+    selected_rows = []
+    try:
+        selected_rows = list(event.selection.rows)
+    except Exception:
+        pass
+    if selected_rows:
+        selected_idx = selected_rows[0]
+        if 0 <= selected_idx < len(display):
+            selected = display.iloc[selected_idx]
+            st.button(
+                f"Открыть {selected['assetcode']} · {selected['secid']} в карточке контракта →",
+                type="primary", use_container_width=True,
+                on_click=open_contract_from_monitor,
+                args=(str(selected["assetcode"]), str(selected["secid"])),
+            )
+
+    st.caption(
+        "WATCH/CRITICAL определяются выбранным пользователем процентным порогом до LOW/HIGH. "
+        "Short/Collateral относятся к базисному активу на соответствующем рынке НКЦ, а не к фьючерсной серии. "
+        f"Ценные бумаги: {security_collateral_status.state}; валюта/металлы: {asset_collateral_status.state}."
+    )
+    st.stop()
+
 selector_contract_col = None
 if active_page == "Обзор":
     selector_asset_col, selector_contract_col = st.columns([1, 1.25], gap="large")
@@ -1250,6 +1442,7 @@ market_row = latest_row(market_df, assetcode)
 static_row = latest_row(static_df, assetcode)
 offdays_row = latest_row(offdays_df, assetcode)
 extra_row = latest_row(extra_df, assetcode)
+collateral_row = lookup_collateral(assetcode, security_collateral_df, asset_collateral_df)
 
 # Стоимость и абсолютные лимиты зависят уже не только от assetcode, но и от
 # конкретного срока исполнения. По умолчанию выбираем ближайший активный
@@ -1483,6 +1676,26 @@ if active_page == "Обзор":
         kpi_card("LOWLIMIT", fmt_number(current_low_quote, price_decimals), fmt_rub(current_low_rub), "risk")
     with k6:
         kpi_card("HIGHLIMIT", fmt_number(current_high_quote, price_decimals), fmt_rub(current_high_rub), "risk")
+
+    if collateral_row is not None:
+        source_kind = cell_text(collateral_row.get("source_kind"))
+        collateral_source_status = security_collateral_status if source_kind == "security" else asset_collateral_status
+        short_ban = collateral_row.get("short_sale_ban")
+        collateral_accept = collateral_row.get("collateral_accepted")
+        short_ban_text = yes_no_text(short_ban)
+        collateral_text = yes_no_text(collateral_accept)
+        st.markdown(
+            '<div class="section-head"><div class="section-kicker">Базисный актив · НКЦ</div>'
+            '<div class="section-title">Короткие продажи и приём в обеспечение</div>'
+            '<div class="section-subtitle">Эти признаки относятся к базисному активу на фондовом / валютном рынке НКЦ, а не к фьючерсной серии.</div></div>',
+            unsafe_allow_html=True,
+        )
+        parameter_strip([
+            ("SHORT_SALE_BAN", "Запрет коротких продаж", short_ban_text, "официальный признак, если опубликован"),
+            ("SHORT_LIMIT", "Лимит коротких продаж", fmt_number(collateral_row.get("short_sale_limit"), 2), "единицы соответствующего актива"),
+            ("COLLATERAL", "Принимается в обеспечение", collateral_text, "параметр базисного актива"),
+            ("COLLATERAL_LIMIT", "Лимит приёма", (fmt_number(collateral_row.get("collateral_limit_pct"), 2) + "%") if not is_missing(collateral_row.get("collateral_limit_pct")) else "—", f"источник: {collateral_source_status.state}"),
+        ])
 
     st.markdown(
         '<div class="section-head"><div class="section-kicker">Концентрационный риск</div>'
