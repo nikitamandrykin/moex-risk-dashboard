@@ -34,6 +34,10 @@ assert radar.loc[radar.assetcode.eq("DDD"), "nearest_side"].iloc[0] == "CENTER"
 assert radar.loc[radar.assetcode.eq("DDD"), "price_source"].iloc[0] == "last"
 assert classify_asset_group("BBB", "на индекс BBB") == "Индексы"
 assert classify_asset_group("AAA", "на акции AAA") == "Акции"
+assert classify_asset_group("RUON", "Фьючерс на ставку RUONIA") == "Ставки"
+assert classify_asset_group("1MFR", "1 month rate future") == "Ставки"
+assert classify_asset_group("HANG", "Hang Seng") == "Индексы"
+assert classify_asset_group("AI92", "Фьючерс на бензин АИ-92") == "Товары"
 
 security_html = '''<table><tr><td>SBER</td><td>RU0009029540</td><td>Сбербанк</td><td>Нет</td><td>123</td><td>Да</td><td>Да</td><td>100</td><td>90</td></tr></table>'''.encode('utf-8')
 sec = parse_security_params_html(security_html)
