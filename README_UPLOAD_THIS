@@ -1,0 +1,6 @@
+Upload all files from this archive to the repository root preserving folders.
+Replace existing: requirements.txt, services/monitor.py, tests_market_monitor.py.
+Add the rest.
+app.py is already the correct v1.2.2 version in GitHub — do not replace it again.
+Do not change streamlit_app.py.
+Delete the old root file `tests_ui_structure` (without .py) after adding tests_ui_structure.py; it is an obsolete misnamed test file.
