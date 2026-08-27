@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Smoke tests
+        run: python tests_smoke.py
+      - name: Resilience tests
+        run: python tests_resilience.py
+      - name: Market Monitor tests
+        run: python tests_market_monitor.py
+      - name: Risk history tests
+        run: python tests_history.py
+      - name: UI structure tests
+        run: python tests_ui_structure.py
+      - name: Compile public entrypoint
+        run: python -m py_compile streamlit_app.py app.py services/*.py scripts/*.py
