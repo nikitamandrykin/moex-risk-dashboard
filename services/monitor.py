@@ -25,16 +25,28 @@ def classify_asset_group(assetcode: str, title: str = "", contract_name: str = "
 
     if is_currency_future(code, title):
         return "Валюта"
-    if any(token in text for token in ("индекс", "index", "imoex", "ртс")):
+
+    # Money-market / interest-rate futures deserve their own bucket.  Without
+    # it RUON/RUONIA/1MFR end up in "Прочие" (or even "Индексы" when the
+    # instrument description mentions an index used to calculate the rate).
+    rate_codes = {"RUON", "RUONIA", "1MFR", "RUSFAR"}
+    if code in rate_codes or any(
+        token in text for token in ("ставк", "interest rate", "rate future", "ruonia", "rusfar", "mosprime")
+    ):
+        return "Ставки"
+
+    index_codes = {"RTS", "IMOEX", "MIX", "MXI", "RVI", "HANG"}
+    if code in index_codes or any(token in text for token in ("индекс", "index", "imoex", "ртс")):
         return "Индексы"
     if any(token in text for token in ("золот", "серебр", "паллад", "платин", "metal", "gold", "silver")):
         return "Металлы"
     if any(token in text for token in (
-        "нефт", "газ", "brent", "crude", "пшениц", "кукуруз", "сахар", "кофе",
-        "какао", "хлоп", "алюмин", "медь", "никел", "цинк", "товар",
+        "нефт", "газ", "brent", "crude", "бензин", "gasoline", "ai-92", "ai92",
+        "пшениц", "кукуруз", "сахар", "кофе", "какао", "хлоп", "алюмин", "медь",
+        "никел", "цинк", "товар",
     )):
         return "Товары"
-    if any(token in text for token in ("акци", "обыкновенн", "привилегированн", "share", "stock")):
+    if any(token in text for token in ("акци", "обыкновенн", "привилегированн", "share", "stock", "etf")):
         return "Акции"
     return "Прочие"
 
@@ -186,6 +198,6 @@ def build_market_monitor(
 def monitor_groups(frame: pd.DataFrame) -> list[str]:
     if frame is None or frame.empty or "group" not in frame.columns:
         return []
-    preferred = ["Валюта", "Индексы", "Акции", "Товары", "Металлы", "Прочие"]
+    preferred = ["Валюта", "Ставки", "Индексы", "Акции", "Товары", "Металлы", "Прочие"]
     available = {str(x) for x in frame["group"].dropna()}
     return [item for item in preferred if item in available]
