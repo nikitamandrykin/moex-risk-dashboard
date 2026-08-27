@@ -8,6 +8,7 @@ import html
 import math
 import os
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -44,6 +45,7 @@ from services.boundaries import (
     is_morning_session,
 )
 from services.monitor import build_market_monitor, monitor_groups
+from services.history import history_change_summary, history_for_contract, load_risk_history
 from services.collateral import load_collateral_sources, lookup_collateral
 from services.special_params import (
     PARAMETER_META,
@@ -936,6 +938,14 @@ def load_collateral_cached():
         return future.result()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def load_risk_history_cached():
+    # History is published by a separate GitHub Actions collector to a dedicated
+    # branch. Keeping it out of the main deployment branch avoids a redeploy on
+    # every historical snapshot.
+    return load_risk_history()
+
+
 SOURCE_BUNDLE_KEY = "_source_bundle_v096"
 COLLATERAL_BUNDLE_KEY = "_collateral_bundle_v11"
 
@@ -1285,26 +1295,33 @@ for code in assetcodes:
         asset_labels[code] = code
 
 if active_page == "Мониторинг":
+    MONITOR_CRITICAL_THRESHOLD = 0.75
+
     st.markdown(
         '<div class="section-head"><div class="section-kicker">Risk Radar</div>'
         '<div class="section-title">Мониторинг фьючерсов по близости к ценовым границам</div>'
-        '<div class="section-subtitle">Один ближайший активный контракт на каждый БА. Статусы WATCH/CRITICAL — аналитические пороги интерфейса, а не официальные термины НКЦ.</div></div>',
+        '<div class="section-subtitle">Один ближайший активный контракт на каждый БА. LOW/HIGH и источник цены — официальные данные MOEX ISS; WATCH/CRITICAL — аналитические уровни интерфейса.</div></div>',
         unsafe_allow_html=True,
     )
 
-    f1, f2, f3 = st.columns([1.15, 1, 1], gap="large")
+    f1, f2, f3, f4 = st.columns([1.12, 1, 1.05, .95], gap="large")
     with f1:
         attention_threshold = st.slider(
-            "Порог внимания до ближайшей границы, %",
-            min_value=0.5, max_value=10.0, value=2.0, step=0.25,
+            "Порог WATCH, %",
+            min_value=0.75, max_value=10.0, value=2.0, step=0.25,
             key="monitor_attention_threshold",
-            help="Аналитический фильтр дашборда. Он не заменяет официальный RangeFut НКЦ.",
+            help=(
+                "WATCH срабатывает, когда расстояние до ближайшей LOW/HIGH не больше выбранного порога. "
+                "CRITICAL фиксирован на уровне 0,75%. Оба порога аналитические и не заменяют официальный RangeFut НКЦ."
+            ),
         )
+        st.caption(f"CRITICAL ≤ {MONITOR_CRITICAL_THRESHOLD:.2f}% · WATCH ≤ {attention_threshold:.2f}%")
+
     monitor_df = build_market_monitor(
         contracts_df, market_df, special_calendar_df,
         check_at=datetime.now(ZoneInfo("Europe/Moscow")),
         attention_threshold_pct=attention_threshold,
-        critical_threshold_pct=min(0.75, attention_threshold / 2),
+        critical_threshold_pct=MONITOR_CRITICAL_THRESHOLD,
     )
     group_options = ["Все группы"] + monitor_groups(monitor_df)
     with f2:
@@ -1312,42 +1329,100 @@ if active_page == "Мониторинг":
     with f3:
         selected_monitor_filter = st.selectbox(
             "Показывать",
-            ["Все", "Требуют внимания", "К верхней границе", "К нижней границе", "Special mode"],
+            [
+                "Все", "Требуют внимания", "CRITICAL / вне границ", "WATCH",
+                "Ближе к HIGH", "Ближе к LOW", "Равноудалены", "Спецрежим НКЦ",
+            ],
             key="monitor_filter",
+        )
+    with f4:
+        selected_price_source = st.selectbox(
+            "Источник цены",
+            ["Все источники", "LAST", "SETTLE", "Резервные цены"],
+            key="monitor_price_source",
+            help="Резервные цены = LASTSETTLEPRICE или PREVSETTLEPRICE.",
         )
 
     if monitor_df.empty:
         st.warning("Не удалось построить мониторинг: в текущем снимке нет контрактов с доступными ценовыми границами.")
         st.stop()
 
-    filtered_monitor = monitor_df.copy()
+    # Scope filters define the universe for both KPI cards and the table.  The
+    # final 'Показывать' filter is applied afterwards, so KPI totals do not jump
+    # merely because the user asks to see one status subset.
+    monitor_scope = monitor_df.copy()
     if selected_monitor_group != "Все группы":
-        filtered_monitor = filtered_monitor[filtered_monitor["group"] == selected_monitor_group]
+        monitor_scope = monitor_scope[monitor_scope["group"] == selected_monitor_group]
+    if selected_price_source == "LAST":
+        monitor_scope = monitor_scope[monitor_scope["price_source"] == "last"]
+    elif selected_price_source == "SETTLE":
+        monitor_scope = monitor_scope[monitor_scope["price_source"] == "settleprice"]
+    elif selected_price_source == "Резервные цены":
+        monitor_scope = monitor_scope[monitor_scope["price_source"].isin({"lastsettleprice", "prevsettleprice"})]
+
     attention_states = {"WATCH", "CRITICAL", "OUTSIDE LOW", "OUTSIDE HIGH"}
+    critical_states = {"CRITICAL", "OUTSIDE LOW", "OUTSIDE HIGH"}
+    filtered_monitor = monitor_scope.copy()
     if selected_monitor_filter == "Требуют внимания":
         filtered_monitor = filtered_monitor[filtered_monitor["risk_status"].isin(attention_states)]
-    elif selected_monitor_filter == "К верхней границе":
+    elif selected_monitor_filter == "CRITICAL / вне границ":
+        filtered_monitor = filtered_monitor[filtered_monitor["risk_status"].isin(critical_states)]
+    elif selected_monitor_filter == "WATCH":
+        filtered_monitor = filtered_monitor[filtered_monitor["risk_status"] == "WATCH"]
+    elif selected_monitor_filter == "Ближе к HIGH":
         filtered_monitor = filtered_monitor[filtered_monitor["nearest_side"] == "HIGH"]
-    elif selected_monitor_filter == "К нижней границе":
+    elif selected_monitor_filter == "Ближе к LOW":
         filtered_monitor = filtered_monitor[filtered_monitor["nearest_side"] == "LOW"]
-    elif selected_monitor_filter == "Special mode":
+    elif selected_monitor_filter == "Равноудалены":
+        filtered_monitor = filtered_monitor[filtered_monitor["nearest_side"] == "CENTER"]
+    elif selected_monitor_filter == "Спецрежим НКЦ":
         filtered_monitor = filtered_monitor[filtered_monitor["special_mode"]]
 
-    attention_count = int(monitor_df["risk_status"].isin(attention_states).sum())
-    high_attention = int(((monitor_df["nearest_side"] == "HIGH") & monitor_df["risk_status"].isin(attention_states)).sum())
-    low_attention = int(((monitor_df["nearest_side"] == "LOW") & monitor_df["risk_status"].isin(attention_states)).sum())
-    center_attention = int(((monitor_df["nearest_side"] == "CENTER") & monitor_df["risk_status"].isin(attention_states)).sum())
-    special_count = int(monitor_df["special_mode"].sum())
+    attention_mask = monitor_scope["risk_status"].isin(attention_states)
+    critical_mask = monitor_scope["risk_status"].isin(critical_states)
+    attention_count = int(attention_mask.sum())
+    critical_count = int(critical_mask.sum())
+    watch_count = int((monitor_scope["risk_status"] == "WATCH").sum())
+    outside_count = int(monitor_scope["risk_status"].isin({"OUTSIDE LOW", "OUTSIDE HIGH"}).sum())
+    special_count = int(monitor_scope["special_mode"].sum())
+    high_attention = int(((monitor_scope["nearest_side"] == "HIGH") & attention_mask).sum())
+    low_attention = int(((monitor_scope["nearest_side"] == "LOW") & attention_mask).sum())
+    center_attention = int(((monitor_scope["nearest_side"] == "CENTER") & attention_mask).sum())
+
     r1, r2, r3, r4 = st.columns(4, gap="small")
     with r1:
-        attention_meta = f"из {len(monitor_df)} отслеживаемых БА" + (f" · равноудалены: {center_attention}" if center_attention else "")
-        kpi_card("Требуют внимания", str(attention_count), attention_meta, "risk" if attention_count else "market")
+        kpi_card(
+            "Требуют внимания", str(attention_count),
+            f"из {len(monitor_scope)} БА в текущем фильтре",
+            "risk" if attention_count else "market",
+        )
     with r2:
-        kpi_card("К верхней границе", str(high_attention), f"≤ {fmt_number(attention_threshold, 2)}% до HIGH", "risk" if high_attention else "market")
+        kpi_card(
+            "Критические", str(critical_count),
+            f"CRITICAL ≤ {MONITOR_CRITICAL_THRESHOLD:.2f}%" + (f" · вне границ: {outside_count}" if outside_count else ""),
+            "risk" if critical_count else "market",
+        )
     with r3:
-        kpi_card("К нижней границе", str(low_attention), f"≤ {fmt_number(attention_threshold, 2)}% до LOW", "risk" if low_attention else "market")
+        kpi_card(
+            "WATCH", str(watch_count),
+            f"{MONITOR_CRITICAL_THRESHOLD:.2f}% < расстояние ≤ {attention_threshold:.2f}%",
+            "limit" if watch_count else "market",
+        )
     with r4:
-        kpi_card("Special mode", str(special_count), "активный календарь НКЦ", "limit" if special_count else "market")
+        kpi_card(
+            "Спецрежим НКЦ", str(special_count),
+            "активен по официальному календарю",
+            "limit" if special_count else "market",
+        )
+
+    last_count = int((monitor_scope["price_source"] == "last").sum())
+    settle_count = int((monitor_scope["price_source"] == "settleprice").sum())
+    reserve_count = int(monitor_scope["price_source"].isin({"lastsettleprice", "prevsettleprice"}).sum())
+    st.caption(
+        f"Среди требующих внимания: HIGH — {high_attention} · LOW — {low_attention} · ↔ равноудалены — {center_attention}. "
+        f"Источники цены в текущем фильтре: LAST — {last_count} · SETTLE — {settle_count} · резервные — {reserve_count}. "
+        "↔ равноудалённость не означает низкий риск: при узком коридоре обе границы могут быть близко."
+    )
 
     display = filtered_monitor.reset_index(drop=True).copy()
     status_icons = {
@@ -1355,7 +1430,9 @@ if active_page == "Мониторинг":
         "CRITICAL": "🔴 CRITICAL", "WATCH": "🟠 WATCH", "NORMAL": "🟢 NORMAL",
     }
     display["Статус"] = display["risk_status"].map(status_icons).fillna(display["risk_status"])
-    display["Направление"] = display["nearest_side"].map({"HIGH": "↑ HIGH", "LOW": "↓ LOW", "CENTER": "↔ CENTER"}).fillna("—")
+    display["Ближайшая граница"] = display["nearest_side"].map(
+        {"HIGH": "↑ HIGH", "LOW": "↓ LOW", "CENTER": "↔ равно"}
+    ).fillna("—")
     price_source_labels = {
         "last": "LAST",
         "settleprice": "SETTLE",
@@ -1364,7 +1441,7 @@ if active_page == "Мониторинг":
     }
     display["Источник цены"] = display["price_source"].map(price_source_labels).fillna("—")
     display["Special"] = display.apply(
-        lambda row: ("SPECIAL" + (f" · {row['special_group']}" if row.get("special_group") else "")) if row.get("special_mode") else "",
+        lambda row: ("SPECIAL" + (f" · {row['special_group']}" if row.get("special_group") else "")) if row.get("special_mode") else "—",
         axis=1,
     )
 
@@ -1374,13 +1451,14 @@ if active_page == "Мониторинг":
         "distance_high_pct": "До HIGH, %", "nearest_pct": "До ближайшей, %",
         "position_pct": "Положение, %",
     })[[
-        "Статус", "БА", "Группа", "Контракт", "Цена", "Источник цены", "LOW", "HIGH",
-        "До LOW, %", "До HIGH, %", "Направление", "До ближайшей, %", "Положение, %",
-        "Special",
+        "Статус", "БА", "Группа", "Контракт", "Цена", "Источник цены",
+        "Ближайшая граница", "До ближайшей, %", "Положение, %",
+        "LOW", "HIGH", "До LOW, %", "До HIGH, %", "Special",
     ]]
 
     event = st.dataframe(
-        table, use_container_width=True, hide_index=True, height=min(650, 86 + 35 * max(1, len(table))),
+        table, use_container_width=True, hide_index=True,
+        height=min(650, 86 + 35 * max(1, len(table))),
         on_select="rerun", selection_mode="single-row", key="market_monitor_table",
         column_config={
             "Цена": st.column_config.NumberColumn(format="%.4f"),
@@ -1391,19 +1469,31 @@ if active_page == "Мониторинг":
             "До ближайшей, %": st.column_config.NumberColumn(format="%.2f%%"),
             "Положение, %": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f%%"),
             "Источник цены": st.column_config.TextColumn(
-                help="Поле MOEX ISS, использованное как цена: LAST → SETTLEPRICE → LASTSETTLEPRICE → PREVSETTLEPRICE."
+                help="Фактически использованное поле MOEX ISS: LAST → SETTLEPRICE → LASTSETTLEPRICE → PREVSETTLEPRICE."
+            ),
+            "Ближайшая граница": st.column_config.TextColumn(
+                help="Это не направление движения цены, а геометрически ближайшая граница текущего коридора."
             ),
         },
     )
+
     selected_rows = []
     try:
         selected_rows = list(event.selection.rows)
     except Exception:
         pass
+
     if selected_rows:
         selected_idx = selected_rows[0]
         if 0 <= selected_idx < len(display):
             selected = display.iloc[selected_idx]
+            live_distance = _as_float(selected.get("nearest_pct"))
+            live_side = str(selected.get("nearest_side") or "—")
+            selected_source = price_source_labels.get(str(selected.get("price_source") or ""), "—")
+            st.markdown(
+                f"**Выбрано:** `{html.escape(str(selected['assetcode']))}` · `{html.escape(str(selected['secid']))}` · "
+                f"{html.escape(str(selected['Статус']))} · цена из **{html.escape(selected_source)}**"
+            )
             st.button(
                 f"Открыть {selected['assetcode']} · {selected['secid']} в карточке контракта →",
                 type="primary", use_container_width=True,
@@ -1411,11 +1501,195 @@ if active_page == "Мониторинг":
                 args=(str(selected["assetcode"]), str(selected["secid"])),
             )
 
+            st.markdown(
+                '<div class="section-head"><div class="section-kicker">Boundary history</div>'
+                '<div class="section-title">История приближения к ценовым границам</div>'
+                '<div class="section-subtitle">Реальные снимки цены и опубликованных LOW/HIGH. Последняя точка графика дополняется текущим live-состоянием выбранной строки.</div></div>',
+                unsafe_allow_html=True,
+            )
+            h1, h2 = st.columns([1, 2.2], gap="large")
+            with h1:
+                history_period_label = st.selectbox(
+                    "Период истории",
+                    ["24 часа", "3 дня", "7 дней"],
+                    key="monitor_history_period",
+                )
+            history_hours = {"24 часа": 24, "3 дня": 72, "7 дней": 168}[history_period_label]
+            with h2:
+                st.caption(
+                    "Коллектор сохраняет изменения цены/LOW/HIGH примерно раз в 15 минут. "
+                    "Серверный timestamp сам по себе новой исторической точкой не считается."
+                )
+
+            history_df, history_status = load_risk_history_cached()
+            contract_history = history_for_contract(
+                history_df,
+                str(selected["assetcode"]),
+                str(selected["secid"]),
+                hours=history_hours,
+            )
+
+            if contract_history.empty:
+                st.info(
+                    "История для этого контракта пока не накоплена. Текущее состояние уже видно в Risk Radar; "
+                    "после первого успешного запуска workflow `Risk Radar history` начнут появляться исторические точки."
+                )
+                st.caption(f"Источник истории: {history_status.state} · {history_status.detail}")
+            else:
+                summary = history_change_summary(contract_history)
+                start_distance = _as_float(summary.get("start"))
+                historical_min = _as_float(summary.get("minimum"))
+                current_distance = live_distance if live_distance is not None else _as_float(summary.get("current"))
+                minimum_distance = historical_min
+                if current_distance is not None:
+                    minimum_distance = current_distance if minimum_distance is None else min(minimum_distance, current_distance)
+                change_distance = (
+                    current_distance - start_distance
+                    if current_distance is not None and start_distance is not None
+                    else None
+                )
+                points_count = int(summary.get("points") or 0)
+                last_snapshot = contract_history["captured_at"].max()
+                if pd.notna(last_snapshot):
+                    try:
+                        last_snapshot_text = pd.Timestamp(last_snapshot).tz_convert("Europe/Moscow").strftime("%d.%m %H:%M МСК")
+                    except Exception:
+                        last_snapshot_text = str(last_snapshot)
+                else:
+                    last_snapshot_text = "—"
+
+                hc1, hc2, hc3, hc4 = st.columns(4, gap="small")
+                with hc1:
+                    kpi_card(
+                        "Сейчас до ближайшей",
+                        "—" if current_distance is None else f"{fmt_number(current_distance, 2)}%",
+                        {"HIGH": "ближайшая: HIGH", "LOW": "ближайшая: LOW", "CENTER": "равно до LOW/HIGH"}.get(live_side, live_side),
+                        "risk" if current_distance is not None and current_distance <= attention_threshold else "market",
+                    )
+                with hc2:
+                    kpi_card(
+                        "Минимум за период",
+                        "—" if minimum_distance is None else f"{fmt_number(minimum_distance, 2)}%",
+                        "минимум истории + текущая live-точка",
+                        "risk" if minimum_distance is not None and minimum_distance <= attention_threshold else "market",
+                    )
+                with hc3:
+                    if change_distance is None:
+                        change_value = "—"
+                        change_meta = "недостаточно исторических точек"
+                    else:
+                        change_value = f"{change_distance:+.2f} п.п."
+                        change_meta = "< 0 — приблизился · > 0 — удалился"
+                    kpi_card(
+                        "Изменение за период", change_value, change_meta,
+                        "limit" if change_distance is not None and change_distance < 0 else "market",
+                    )
+                with hc4:
+                    kpi_card(
+                        "Последний снимок", last_snapshot_text,
+                        f"сохранено точек: {points_count}", "market",
+                    )
+
+                if points_count < 3:
+                    st.info(
+                        "История уже начала накапливаться, но для содержательного графика нужно минимум 3 сохранённых снимка. "
+                        "Текущие значения и минимум уже рассчитаны; график появится автоматически после накопления данных."
+                    )
+                    st.caption(
+                        f"Сейчас сохранено исторических точек: {points_count}. Для презентации этот блок лучше показывать после накопления минимум 3 точек."
+                    )
+                    st.stop()
+
+                chart_rows = contract_history.copy().sort_values("captured_at")
+                # Add an explicit live point. It is visual only and is not
+                # written to the rolling history branch from the web app.
+                live_row = {column: pd.NA for column in chart_rows.columns}
+                live_row.update({
+                    "captured_at": pd.Timestamp.now(tz="UTC"),
+                    "assetcode": selected.get("assetcode"),
+                    "secid": selected.get("secid"),
+                    "price": selected.get("price"),
+                    "lowlimit": selected.get("lowlimit"),
+                    "highlimit": selected.get("highlimit"),
+                    "distance_low_pct": selected.get("distance_low_pct"),
+                    "distance_high_pct": selected.get("distance_high_pct"),
+                    "nearest_pct": selected.get("nearest_pct"),
+                    "nearest_side": selected.get("nearest_side"),
+                    "position_pct": selected.get("position_pct"),
+                    "price_source": selected.get("price_source"),
+                    "systime": selected.get("systime"),
+                })
+                chart_rows = pd.concat([chart_rows, pd.DataFrame([live_row])], ignore_index=True)
+                chart_rows["captured_at"] = pd.to_datetime(chart_rows["captured_at"], errors="coerce", utc=True)
+                chart_rows = chart_rows.dropna(subset=["captured_at"]).sort_values("captured_at")
+                chart_rows["captured_local"] = chart_rows["captured_at"].dt.tz_convert("Europe/Moscow")
+                chart_rows["point_type"] = "history"
+                chart_rows.loc[chart_rows.index[-1], "point_type"] = "LIVE"
+
+                st.markdown("**Цена внутри исторического коридора LOW/HIGH**")
+                base = alt.Chart(chart_rows).encode(
+                    x=alt.X("captured_local:T", title="Время (МСК)", axis=alt.Axis(format="%d.%m %H:%M"))
+                )
+                corridor = base.mark_area(opacity=0.10, color="#667085").encode(
+                    y=alt.Y("lowlimit:Q", title="Цена", scale=alt.Scale(zero=False)),
+                    y2="highlimit:Q",
+                    tooltip=[
+                        alt.Tooltip("captured_local:T", title="Время", format="%d.%m %H:%M"),
+                        alt.Tooltip("lowlimit:Q", title="LOW", format=".4f"),
+                        alt.Tooltip("highlimit:Q", title="HIGH", format=".4f"),
+                    ],
+                )
+                low_line = base.mark_line(strokeDash=[5, 4], color="#98A2B3").encode(
+                    y=alt.Y("lowlimit:Q", title="Цена", scale=alt.Scale(zero=False))
+                )
+                high_line = base.mark_line(strokeDash=[5, 4], color="#98A2B3").encode(
+                    y=alt.Y("highlimit:Q", title="Цена", scale=alt.Scale(zero=False))
+                )
+                price_line = base.mark_line(point=True, strokeWidth=2.5, color="#D92D3A").encode(
+                    y=alt.Y("price:Q", title="Цена", scale=alt.Scale(zero=False)),
+                    tooltip=[
+                        alt.Tooltip("captured_local:T", title="Время", format="%d.%m %H:%M"),
+                        alt.Tooltip("price:Q", title="Цена", format=".4f"),
+                        alt.Tooltip("point_type:N", title="Точка"),
+                    ],
+                )
+                st.altair_chart(
+                    (corridor + low_line + high_line + price_line).properties(height=315),
+                    use_container_width=True,
+                )
+
+                st.markdown("**Расстояние до ближайшей границы**")
+                nearest_chart = alt.Chart(chart_rows).mark_line(point=True, strokeWidth=2.5, color="#344054").encode(
+                    x=alt.X("captured_local:T", title="Время (МСК)", axis=alt.Axis(format="%d.%m %H:%M")),
+                    y=alt.Y("nearest_pct:Q", title="До ближайшей, %", scale=alt.Scale(zero=True)),
+                    tooltip=[
+                        alt.Tooltip("captured_local:T", title="Время", format="%d.%m %H:%M"),
+                        alt.Tooltip("nearest_pct:Q", title="До ближайшей, %", format=".2f"),
+                        alt.Tooltip("distance_low_pct:Q", title="До LOW, %", format=".2f"),
+                        alt.Tooltip("distance_high_pct:Q", title="До HIGH, %", format=".2f"),
+                        alt.Tooltip("nearest_side:N", title="Ближайшая"),
+                        alt.Tooltip("point_type:N", title="Точка"),
+                    ],
+                )
+                watch_rule = alt.Chart(pd.DataFrame({"threshold": [attention_threshold]})).mark_rule(
+                    color="#F79009", strokeDash=[6, 4]
+                ).encode(y="threshold:Q")
+                critical_rule = alt.Chart(pd.DataFrame({"threshold": [MONITOR_CRITICAL_THRESHOLD]})).mark_rule(
+                    color="#D92D3A", strokeDash=[6, 4]
+                ).encode(y="threshold:Q")
+                st.altair_chart(
+                    (nearest_chart + watch_rule + critical_rule).properties(height=300),
+                    use_container_width=True,
+                )
+                st.caption(
+                    f"Пунктирные уровни: WATCH = {attention_threshold:.2f}% · CRITICAL = {MONITOR_CRITICAL_THRESHOLD:.2f}%. "
+                    "Исторические LOW/HIGH — реальные снимки MOEX ISS; последняя точка LIVE добавлена только для отображения текущего состояния. "
+                    f"Источник истории: {history_status.state}."
+                )
+
     st.caption(
-        "WATCH/CRITICAL определяются выбранным пользователем процентным порогом до LOW/HIGH. "
-        "↔ CENTER означает одинаковое расстояние до LOW и HIGH на отображаемой точности. "
-        "Источник цены показывает фактически использованное поле MOEX ISS. "
-        "Параметры short/collateral вынесены из Risk Radar в детальный обзор выбранного базисного актива."
+        "LOW/HIGH берутся из текущих официальных параметров MOEX ISS. WATCH/CRITICAL — аналитические уровни интерфейса. "
+        "Поле «Ближайшая граница» не показывает тренд движения цены. ↔ означает одинаковое расстояние до LOW и HIGH на отображаемой точности."
     )
     st.stop()
 
