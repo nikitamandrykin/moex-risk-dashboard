@@ -358,7 +358,7 @@ assert "methodology-table-wrap" in app_text
 assert "HIGHLIMIT_RUB" in app_text
 assert "Калькулятор ГО по уровням концентрации" in app_text
 assert "GO_{position}=N_1IM_1+N_2IM_2+N_3IM_3" in app_text
-assert "NAV_PAGES = [\"Обзор\", \"Границы\", \"Калькулятор ГО\", \"Спецрежимы НКЦ\", \"Методика\"]" in app_text
+assert "NAV_PAGES = [\"Мониторинг\", \"Обзор\", \"Границы\", \"Калькулятор ГО\", \"Спецрежимы НКЦ\", \"Методика\"]" in app_text
 assert "if active_page == \"Обзор\":" in app_text
 assert "load_all_sources_cached" in app_text and "SOURCE_BUNDLE_KEY" in app_text
 assert "Количество контрактов" in app_text
@@ -460,3 +460,12 @@ assert float(active_spyf_official.loc[active_spyf_official["parameter"] == "FutM
 assert active_spyf_official.loc[active_spyf_official["parameter"] == "RangeFut", "value_raw"].iloc[0] == "—"
 assert active_spyf_official["event_name"].str.contains("Washington", case=False).all()
 print("Special-risk calendar tests OK: compact uploads and official merged-cell 2026 matrix")
+
+
+# v1.1 Market Monitor UI/architecture checks.
+assert 'Мониторинг фьючерсов по близости к ценовым границам' in app_text
+assert 'build_market_monitor' in app_text
+assert 'lookup_collateral' in app_text
+assert 'Запрет коротких продаж' in app_text
+assert 'Принимается в обеспечение' in app_text
+print("Market Monitor UI checks OK")
