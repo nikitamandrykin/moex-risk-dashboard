@@ -1274,14 +1274,22 @@ if not assetcodes:
     st.error("Не найден ни один assetcode. Проверьте источники данных или загрузите ручной файл.")
     st.stop()
 
-# Явно храним выбор пользователя. Без key после обновления источников
-# Streamlit мог пересоздать selectbox и применить индекс по умолчанию RTS,
-# тогда как в браузере ещё отображалось прежнее значение.
+# Выбор БА хранится отдельно от состояния виджета. Это важно для lazy navigation:
+# на страницах «Границы», «Калькулятор ГО» и т.д. selectbox не рендерится,
+# поэтому Streamlit удаляет его widget-state. Постоянный ключ selected_assetcode
+# при этом должен переживать переходы между разделами.
 fallback_assetcode = "RTS" if "RTS" in assetcodes else assetcodes[0]
 if "selected_assetcode" not in st.session_state:
     st.session_state["selected_assetcode"] = fallback_assetcode
 elif st.session_state["selected_assetcode"] not in assetcodes:
     st.session_state["selected_assetcode"] = fallback_assetcode
+
+
+def persist_widget_value(widget_key: str, state_key: str) -> None:
+    """Copy a widget value into a non-widget session-state key."""
+    value = st.session_state.get(widget_key)
+    if value is not None:
+        st.session_state[state_key] = value
 
 # В списке показываем не только технический код, но и название базисного актива
 # из официальной выгрузки MR/LK. Это особенно важно для похожих кодов T и TCSI.
@@ -1694,15 +1702,25 @@ if active_page == "Мониторинг":
     st.stop()
 
 selector_contract_col = None
+ASSET_WIDGET_KEY = "_selected_assetcode_widget"
+
 if active_page == "Обзор":
     selector_asset_col, selector_contract_col = st.columns([1, 1.25], gap="large")
+
+    # Временный ключ принадлежит только selectbox. Если виджет был удалён при
+    # переходе на другую страницу, восстанавливаем его из постоянного выбора.
+    if st.session_state.get(ASSET_WIDGET_KEY) != st.session_state["selected_assetcode"]:
+        st.session_state[ASSET_WIDGET_KEY] = st.session_state["selected_assetcode"]
+
     with selector_asset_col:
         assetcode = st.selectbox(
             "Базисный актив",
             options=assetcodes,
-            key="selected_assetcode",
+            key=ASSET_WIDGET_KEY,
             format_func=lambda code: asset_labels.get(code, code),
             help="Параметры из разных источников объединяются по assetcode.",
+            on_change=persist_widget_value,
+            args=(ASSET_WIDGET_KEY, "selected_assetcode"),
         )
 else:
     assetcode = st.session_state["selected_assetcode"]
@@ -1737,17 +1755,28 @@ if not contract_rows.empty and "secid" in contract_rows.columns:
     contract_key = f"selected_contract_{assetcode}"
     if contract_key not in st.session_state or st.session_state[contract_key] not in contract_options:
         st.session_state[contract_key] = contract_options[0]
+
+    # Отдельный widget-key на каждый БА не даёт выбранной серии одного актива
+    # перетечь в другой актив и не связывает постоянное состояние с жизненным
+    # циклом selectbox.
+    contract_widget_key = f"_selected_contract_widget_{assetcode}"
+
     if active_page == "Обзор" and selector_contract_col is not None:
+        if st.session_state.get(contract_widget_key) != st.session_state[contract_key]:
+            st.session_state[contract_widget_key] = st.session_state[contract_key]
+
         with selector_contract_col:
             selected_contract = st.selectbox(
                 "Фьючерсный контракт",
                 options=contract_options,
-                key=contract_key,
+                key=contract_widget_key,
                 format_func=lambda secid: contract_labels.get(secid, secid),
                 help=(
                     "Риск-параметры задаются на уровне базисного актива, а цена, стоимость и абсолютные "
                     "границы зависят от выбранной серии фьючерса."
                 ),
+                on_change=persist_widget_value,
+                args=(contract_widget_key, contract_key),
             )
     else:
         selected_contract = st.session_state[contract_key]
