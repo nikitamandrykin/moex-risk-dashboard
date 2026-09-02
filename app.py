@@ -2289,33 +2289,16 @@ if active_page == "Обзор":
         simple_metric_card("Второй порог", f"{fmt_number(lk2_contracts, 0)} контр.", code="LK2")
 
     st.markdown(
-        '<div class="section-head"><div class="section-title">Границы выходного дня</div></div>',
+        '<div class="section-head"><div class="section-title">Торги в выходные дни</div></div>',
         unsafe_allow_html=True,
     )
-    w1, w2, w3, w4 = st.columns(4, gap="small")
-    with w1:
+    offdays_col, _ = st.columns([1, 3], gap="small")
+    with offdays_col:
         simple_metric_card(
             "Сдвиг на выходные",
             fmt_rate(weekend_shift),
             code="OffDaysTradingPriceRangeShift",
         )
-    with w2:
-        simple_metric_card(
-            "База расчёта",
-            fmt_number(weekend_ref.value, price_decimals),
-        )
-    with w3:
-        simple_metric_card(
-            "Нижняя граница",
-            fmt_number(weekend_low, price_decimals),
-        )
-    with w4:
-        simple_metric_card(
-            "Верхняя граница",
-            fmt_number(weekend_high, price_decimals),
-        )
-    if weekend_estimate.error:
-        st.caption("Для выбранного контракта границы выходного дня пока недоступны.")
 
     st.markdown(
         '<div class="section-head"><div class="section-title">Концентрация</div></div>',
