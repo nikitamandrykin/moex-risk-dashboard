@@ -623,6 +623,14 @@ body, .stApp { background:#F7F8FA; }
   margin-top:.34rem;
   white-space:nowrap;
 }
+.simple-card-subvalue {
+  color:#667085;
+  font-size:.72rem;
+  line-height:1.25;
+  font-weight:620;
+  margin-top:.30rem;
+  white-space:nowrap;
+}
 
 .metric-card { min-height:96px; padding:.78rem .86rem; }
 .metric-card:before { display:none !important; }
@@ -873,14 +881,25 @@ def metric_card(
     )
 
 
-def simple_metric_card(label: str, value: str, *, code: str = "") -> None:
+def simple_metric_card(
+    label: str,
+    value: str,
+    *,
+    code: str = "",
+    subvalue: str = "",
+) -> None:
     code_html = f'<div class="simple-card-code">{html.escape(code)}</div>' if code else ""
+    subvalue_html = (
+        f'<div class="simple-card-subvalue">{html.escape(subvalue)}</div>'
+        if subvalue else ""
+    )
     st.markdown(
         f"""
 <div class="simple-card">
   {code_html}
   <div class="simple-card-label">{html.escape(label)}</div>
   <div class="simple-card-value">{html.escape(value)}</div>
+  {subvalue_html}
 </div>
 """,
         unsafe_allow_html=True,
@@ -2306,11 +2325,21 @@ if active_page == "Обзор":
     with c1:
         simple_metric_card("Базовый уровень", fmt_rate(mr1), code="MR1")
     with c2:
-        simple_metric_card("Первый порог", f"{fmt_number(lk1_contracts, 0)} контр.", code="LK1")
+        simple_metric_card(
+            "Первый порог",
+            f"{fmt_number(lk1_contracts, 0)} контр.",
+            code="LK1",
+            subvalue=f"≈ {fmt_compact_rub(lk1_rub_equivalent)}",
+        )
     with c3:
         simple_metric_card("Повышенный уровень", fmt_rate(mr2), code="MR2")
     with c4:
-        simple_metric_card("Второй порог", f"{fmt_number(lk2_contracts, 0)} контр.", code="LK2")
+        simple_metric_card(
+            "Второй порог",
+            f"{fmt_number(lk2_contracts, 0)} контр.",
+            code="LK2",
+            subvalue=f"≈ {fmt_compact_rub(lk2_rub_equivalent)}",
+        )
     with c5:
         simple_metric_card("Высокая концентрация", fmt_rate(mr3), code="MR3")
 
