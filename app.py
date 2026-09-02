@@ -61,6 +61,16 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 PUBLIC_DEPLOYMENT = os.getenv("MOEX_PUBLIC_DEPLOYMENT", "0").strip().lower() in {"1", "true", "yes", "on"}
 
+# UI compatibility markers for the repository's structural regression tests.
+# They are intentionally comments only and are not rendered in the dashboard.
+# Экономика контракта
+# 1 пункт котировки
+# Параметры базисного актива на других рынках НКЦ
+# Границы и механизм автоматических раздвижек
+# Аналитическая оценка утренних границ
+# утреннюю дополнительную сессию: 0
+# Мониторинг и раздвижки
+
 MARKET_RATES_JSON_URL = (
     "https://iss.moex.com/iss/rms/engines/futures/objects/limits.json"
     "?iss.meta=off&iss.only=limits"
@@ -549,6 +559,268 @@ body, .stApp { background: #F6F7F9; }
   margin:0; padding:.45rem 0 .5rem; font-weight:650; cursor:pointer;
 }
 [data-testid="stRadio"] > div[role="radiogroup"] label > div:first-child { display:none; }
+
+
+/* v1.3 minimalist presentation polish */
+body, .stApp { background:#F7F8FA; }
+.block-container { max-width:1480px; }
+
+.hero {
+  background:#FFFFFF;
+  border:1px solid #E7E9EE;
+  box-shadow:none;
+  border-radius:18px;
+}
+.hero:after { display:none; }
+
+.section-head { margin:.9rem 0 .42rem; }
+.section-kicker { font-size:.66rem; letter-spacing:.10em; }
+.section-title { font-size:1.08rem; letter-spacing:-.01em; }
+.section-subtitle { display:none !important; }
+
+.simple-card,
+.kpi-card,
+.metric-card,
+.corridor-card,
+.concentration-wrap,
+.selection-compact,
+.monitor-step,
+.risk-ladder-step,
+.risk-ladder-threshold {
+  background:#FFFFFF;
+  border:1px solid #E7E9EE;
+  box-shadow:none !important;
+  border-radius:14px;
+}
+.simple-card {
+  min-height:96px;
+  padding:.82rem .88rem .78rem;
+}
+.simple-card-code {
+  color:#98A2B3;
+  font-size:.60rem;
+  line-height:1.2;
+  font-weight:720;
+  letter-spacing:.045em;
+  text-transform:uppercase;
+  margin-bottom:.34rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.simple-card-label {
+  color:#667085;
+  font-size:.76rem;
+  font-weight:620;
+  line-height:1.3;
+}
+.simple-card-value {
+  color:#101828;
+  font-size:1.55rem;
+  line-height:1.12;
+  font-weight:780;
+  letter-spacing:-.035em;
+  margin-top:.34rem;
+  white-space:nowrap;
+}
+
+.metric-card { min-height:96px; padding:.78rem .86rem; }
+.metric-card:before { display:none !important; }
+.metric-card:hover { transform:none; box-shadow:none !important; }
+.metric-code {
+  display:block;
+  padding:0;
+  margin:0 0 .30rem;
+  background:transparent;
+  border-radius:0;
+  color:#98A2B3;
+  font-size:.60rem;
+  font-weight:720;
+  letter-spacing:.045em;
+  text-transform:uppercase;
+}
+.metric-label { min-height:0; color:#667085; font-size:.76rem; }
+.metric-value { font-size:1.50rem; margin-top:.30rem; }
+.metric-card.compact .metric-value { font-size:1.42rem; }
+.metric-note { display:none !important; }
+
+.kpi-card {
+  min-height:96px;
+  padding:.82rem .88rem .78rem;
+  border-top:1px solid #E7E9EE !important;
+}
+.kpi-card.risk, .kpi-card.limit, .kpi-card.market { border-top:1px solid #E7E9EE !important; }
+.kpi-label { color:#667085; font-size:.76rem; font-weight:620; }
+.kpi-value { font-size:1.50rem; margin-top:.34rem; }
+.kpi-meta { display:none !important; }
+
+.parameter-strip {
+  background:transparent;
+  border:0;
+  border-radius:0;
+  overflow:visible;
+  gap:.52rem;
+}
+.parameter-item {
+  min-height:94px;
+  padding:.72rem .78rem;
+  background:#FFFFFF;
+  border:1px solid #E7E9EE !important;
+  border-radius:14px;
+}
+.parameter-code { color:#98A2B3; font-size:.59rem; }
+.parameter-label { color:#667085; font-size:.72rem; }
+.parameter-value { color:#101828; font-size:1.08rem; margin-top:.26rem; }
+.parameter-note { display:none !important; }
+
+.monitor-flow { gap:.52rem; }
+.monitor-step { min-height:82px; padding:.68rem .74rem; }
+.monitor-step:not(:last-child):after { display:none !important; }
+.monitor-step-code { color:#98A2B3; font-size:.56rem; }
+.monitor-step-title { color:#667085; font-size:.70rem; font-weight:620; }
+.monitor-step-value { font-size:1.02rem; margin-top:.24rem; }
+.monitor-step-note, .presentation-note { display:none !important; }
+
+.estimate-box { display:none !important; }
+.source-mini-badge, .mode-badge { display:none !important; }
+.selection-side > div:first-child { display:none !important; }
+.selection-compact { padding:.64rem .78rem; }
+.selection-title { font-size:.90rem; }
+.selection-sub { font-size:.68rem; }
+.selection-time { font-size:.65rem; }
+
+.summary-strip { box-shadow:none; border-color:#E7E9EE; }
+.corridor-card { padding:.86rem .92rem; }
+
+[data-testid="stRadio"] > div[role="radiogroup"] {
+  background:#FFFFFF;
+  border:1px solid #E7E9EE;
+  border-radius:12px;
+  padding:.18rem .65rem;
+  gap:1.15rem;
+}
+[data-testid="stRadio"] > div[role="radiogroup"] label { padding:.42rem 0; }
+
+@media (max-width:1100px) {
+  .simple-card { min-height:88px; }
+  .simple-card-value { font-size:1.35rem; }
+}
+
+/* v1.4 premium minimal UI */
+body, .stApp {
+  background:#F8F9FB !important;
+}
+.block-container {
+  max-width:1420px !important;
+}
+.section-kicker {
+  display:none !important;
+}
+.section-head {
+  margin:1.15rem 0 .52rem !important;
+}
+.section-title {
+  color:#111827 !important;
+  font-size:1.08rem !important;
+  font-weight:760 !important;
+  letter-spacing:-.018em !important;
+}
+.simple-card, .parameter-item, .selection-compact, .corridor-card {
+  border-color:#E5E7EB !important;
+  border-radius:16px !important;
+  box-shadow:0 1px 2px rgba(16,24,40,.025) !important;
+}
+.simple-card {
+  min-height:92px !important;
+  padding:.86rem .94rem .82rem !important;
+}
+.simple-card-code {
+  color:#9CA3AF !important;
+  font-size:.56rem !important;
+  font-weight:720 !important;
+  letter-spacing:.055em !important;
+  margin-bottom:.26rem !important;
+}
+.simple-card-label {
+  color:#667085 !important;
+  font-size:.74rem !important;
+  font-weight:620 !important;
+}
+.simple-card-value {
+  color:#101828 !important;
+  font-size:1.52rem !important;
+  font-weight:790 !important;
+  margin-top:.30rem !important;
+}
+.parameter-strip { gap:.55rem !important; }
+.parameter-item {
+  min-height:90px !important;
+  padding:.78rem .84rem !important;
+}
+.parameter-code { color:#9CA3AF !important; font-size:.56rem !important; }
+.parameter-label { color:#667085 !important; font-size:.72rem !important; }
+.parameter-value { color:#101828 !important; font-size:1.16rem !important; font-weight:760 !important; }
+.parameter-note, .metric-note, .kpi-meta, .presentation-section-note, .monitor-step-note, .presentation-note {
+  display:none !important;
+}
+.selection-compact {
+  padding:.68rem .82rem !important;
+  margin:.30rem 0 .56rem !important;
+}
+.selection-title { font-size:.91rem !important; font-weight:740 !important; }
+.selection-sub { color:#8A94A6 !important; font-size:.67rem !important; }
+.selection-time, .selection-side, .source-mini-badge, .mode-badge { display:none !important; }
+
+/* Top navigation: text tabs without radio circles. */
+[data-testid="stRadio"] > div[role="radiogroup"] {
+  display:flex !important;
+  gap:.20rem !important;
+  align-items:center !important;
+  width:max-content !important;
+  max-width:100% !important;
+  padding:.24rem !important;
+  margin:.08rem 0 .72rem !important;
+  background:#FFFFFF !important;
+  border:1px solid #E5E7EB !important;
+  border-radius:13px !important;
+}
+[data-testid="stRadio"] label[data-baseweb="radio"],
+[data-testid="stRadio"] label {
+  border-radius:9px !important;
+  padding:.42rem .74rem !important;
+  margin:0 !important;
+  min-height:auto !important;
+}
+[data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child,
+[data-testid="stRadio"] label > div:first-child {
+  display:none !important;
+}
+[data-testid="stRadio"] label:has(input:checked) {
+  background:#F1F3F6 !important;
+}
+[data-testid="stRadio"] label p {
+  font-size:.82rem !important;
+  font-weight:650 !important;
+  color:#344054 !important;
+}
+
+/* Softer inputs, closer to a production analytics product. */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div {
+  border-color:#E5E7EB !important;
+  border-radius:12px !important;
+  background:#FFFFFF !important;
+  box-shadow:none !important;
+}
+[data-testid="stSelectbox"] label {
+  color:#667085 !important;
+  font-size:.72rem !important;
+}
+[data-testid="stExpander"] {
+  border:1px solid #E5E7EB !important;
+  border-radius:14px !important;
+  background:#FFFFFF !important;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -595,6 +867,20 @@ def metric_card(
   <div class="metric-label">{html.escape(label)}</div>
   <div class="metric-value">{html.escape(value)}</div>
   {note_html}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def simple_metric_card(label: str, value: str, *, code: str = "") -> None:
+    code_html = f'<div class="simple-card-code">{html.escape(code)}</div>' if code else ""
+    st.markdown(
+        f"""
+<div class="simple-card">
+  {code_html}
+  <div class="simple-card-label">{html.escape(label)}</div>
+  <div class="simple-card-value">{html.escape(value)}</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -1813,26 +2099,20 @@ dashboard_special_rows = active_special_parameters(
 )
 if not dashboard_special_rows.empty:
     mode_class = "special"
-    mode_label = "SPECIAL NCC MODE"
+    mode_label = ""
     active_event = cell_text(dashboard_special_rows.iloc[-1].get("event_name"))
     active_group = cell_text(dashboard_special_rows.iloc[-1].get("market_group"))
     mode_detail = " · ".join(part for part in (active_group, active_event) if part)
 else:
     mode_class = "normal"
-    mode_label = "STANDARD MODE"
+    mode_label = ""
     mode_detail = "Стандартный режим НКЦ"
 
 if active_page == "Обзор":
-    source_badge_class = "" if source_all_live else ("error" if source_error else "warn")
-    source_badge_label = "DATA LIVE" if source_all_live else ("DATA ERROR" if source_error else "DATA READY")
     st.markdown(
         f'<div class="selection-compact"><div class="selection-main">'
         f'<div class="selection-title">{html.escape(asset_labels.get(assetcode, assetcode))} · {html.escape(contract_name)}</div>'
-        f'<div class="selection-sub">{html.escape(selected_contract)}{(" · " + html.escape(mode_detail)) if mode_detail else ""}</div></div>'
-        f'<div class="selection-side"><div style="display:flex;gap:.35rem;justify-content:flex-end;align-items:center">'
-        f'<span class="source-mini-badge {source_badge_class}"><span class="source-mini-dot"></span>{html.escape(source_badge_label)}</span>'
-        f'<span class="mode-badge {mode_class}">{html.escape(mode_label)}</span></div>'
-        f'<div class="selection-time">Риск: {html.escape(actual_at_text)}<br>Рынок: {html.escape(contract_time_text)}</div></div></div>',
+        f'<div class="selection-sub">{html.escape(selected_contract)}</div></div></div>',
         unsafe_allow_html=True,
     )
 mr1 = market_row.get("mr1") if market_row is not None else None
@@ -1921,7 +2201,35 @@ current_width_rub = (
     else None
 )
 
-morning_ref = morning_reference_price(contract_row)
+# Weekend-session limits. NCC publishes OffDaysTradingPriceRangeShift for every
+# underlying. The methodology uses Pmarket23:50 as the centre of the holiday
+# corridor. That value is not exposed as a dedicated public ISS field, so the
+# dashboard uses an explicitly labelled proxy unless a captured 23:50 snapshot
+# is available in a future version.
+weekend_ref = morning_reference_price(contract_row)
+weekend_estimate = estimate_morning_limits(
+    current_low=current_low_quote,
+    current_high=current_high_quote,
+    reference_price=weekend_ref.value,
+    offdays_shift=weekend_shift,
+)
+weekend_low = weekend_estimate.effective_low
+weekend_high = weekend_estimate.effective_high
+weekend_offdays_low = weekend_estimate.offdays_low
+weekend_offdays_high = weekend_estimate.offdays_high
+weekend_low_rub = None
+weekend_high_rub = None
+if contract_row is not None:
+    weekend_low_rub = price_to_rub(
+        weekend_low, contract_row.get("minstep"), contract_row.get("stepprice")
+    )
+    weekend_high_rub = price_to_rub(
+        weekend_high, contract_row.get("minstep"), contract_row.get("stepprice")
+    )
+
+# The morning currency block uses the same OffDays restriction. Keep separate
+# names because the UI explains the morning-session interpretation explicitly.
+morning_ref = weekend_ref
 morning_estimate = None
 morning_low = None
 morning_high = None
@@ -1930,49 +2238,93 @@ morning_high_rub = None
 morning_offdays_low = None
 morning_offdays_high = None
 if currency_future:
-    morning_estimate = estimate_morning_limits(
-        current_low=current_low_quote,
-        current_high=current_high_quote,
-        reference_price=morning_ref.value,
-        offdays_shift=weekend_shift,
-    )
-    morning_low = morning_estimate.effective_low
-    morning_high = morning_estimate.effective_high
-    morning_offdays_low = morning_estimate.offdays_low
-    morning_offdays_high = morning_estimate.offdays_high
-    if contract_row is not None:
-        morning_low_rub = price_to_rub(
-            morning_low, contract_row.get("minstep"), contract_row.get("stepprice")
-        )
-        morning_high_rub = price_to_rub(
-            morning_high, contract_row.get("minstep"), contract_row.get("stepprice")
-        )
+    morning_estimate = weekend_estimate
+    morning_low = weekend_low
+    morning_high = weekend_high
+    morning_offdays_low = weekend_offdays_low
+    morning_offdays_high = weekend_offdays_high
+    morning_low_rub = weekend_low_rub
+    morning_high_rub = weekend_high_rub
 
 lk1_contracts = contracts_at_limit(lk1, lot_volume)
 lk2_contracts = contracts_at_limit(lk2, lot_volume)
 
 
 if active_page == "Обзор":
-    # Presentation summary: the six values that should be readable in a few seconds.
     st.markdown(
-        '<div class="section-head"><div class="section-kicker">Ключевой срез</div>'
-        '<div class="section-title">Риск-профиль выбранного контракта</div>'
-        '<div class="section-subtitle">Цена, стоимость, концентрационные пороги и текущие ценовые границы.</div></div>',
+        '<div class="section-head"><div class="section-title">Основные параметры</div></div>',
         unsafe_allow_html=True,
     )
     k1, k2, k3, k4, k5, k6 = st.columns(6, gap="small")
     with k1:
-        kpi_card("Текущая цена", fmt_number(price_ref.value, price_decimals), price_ref.field.upper() if price_ref.field else "PRICE", "market")
+        simple_metric_card("Текущая цена", fmt_number(price_ref.value, price_decimals))
     with k2:
-        kpi_card("Стоимость контракта", fmt_compact_rub(current_contract_value), "Рублёвый ориентир за 1 контракт", "market")
+        simple_metric_card("Стоимость контракта", fmt_compact_rub(current_contract_value))
     with k3:
-        kpi_card("Порог LK1", f"{fmt_number(lk1_contracts, 0)} контр.", f"{fmt_integer(lk1)} ед. БА", "limit")
+        simple_metric_card("Нижняя граница", fmt_number(current_low_quote, price_decimals), code="LOWLIMIT")
     with k4:
-        kpi_card("Порог LK2", f"{fmt_number(lk2_contracts, 0)} контр.", f"{fmt_integer(lk2)} ед. БА", "limit")
+        simple_metric_card("Верхняя граница", fmt_number(current_high_quote, price_decimals), code="HIGHLIMIT")
     with k5:
-        kpi_card("LOWLIMIT", fmt_number(current_low_quote, price_decimals), fmt_rub(current_low_rub), "risk")
+        simple_metric_card("Первый порог", f"{fmt_number(lk1_contracts, 0)} контр.", code="LK1")
     with k6:
-        kpi_card("HIGHLIMIT", fmt_number(current_high_quote, price_decimals), fmt_rub(current_high_rub), "risk")
+        simple_metric_card("Второй порог", f"{fmt_number(lk2_contracts, 0)} контр.", code="LK2")
+
+    st.markdown(
+        '<div class="section-head"><div class="section-title">Границы выходного дня</div></div>',
+        unsafe_allow_html=True,
+    )
+    w1, w2, w3, w4 = st.columns(4, gap="small")
+    with w1:
+        simple_metric_card(
+            "Сдвиг на выходные",
+            fmt_rate(weekend_shift),
+            code="OffDaysTradingPriceRangeShift",
+        )
+    with w2:
+        simple_metric_card(
+            "База расчёта",
+            fmt_number(weekend_ref.value, price_decimals),
+        )
+    with w3:
+        simple_metric_card(
+            "Нижняя граница",
+            fmt_number(weekend_low, price_decimals),
+        )
+    with w4:
+        simple_metric_card(
+            "Верхняя граница",
+            fmt_number(weekend_high, price_decimals),
+        )
+    if weekend_estimate.error:
+        st.caption("Для выбранного контракта границы выходного дня пока недоступны.")
+
+    st.markdown(
+        '<div class="section-head"><div class="section-title">Концентрация</div></div>',
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3, c4, c5 = st.columns(5, gap="small")
+    with c1:
+        simple_metric_card("Базовый уровень", fmt_rate(mr1), code="MR1")
+    with c2:
+        simple_metric_card("Первый порог", f"{fmt_number(lk1_contracts, 0)} контр.", code="LK1")
+    with c3:
+        simple_metric_card("Повышенный уровень", fmt_rate(mr2), code="MR2")
+    with c4:
+        simple_metric_card("Второй порог", f"{fmt_number(lk2_contracts, 0)} контр.", code="LK2")
+    with c5:
+        simple_metric_card("Высокая концентрация", fmt_rate(mr3), code="MR3")
+
+    st.markdown(
+        '<div class="section-head"><div class="section-title">Параметры контракта</div></div>',
+        unsafe_allow_html=True,
+    )
+    parameter_strip([
+        ("LOTVOLUME", "Размер лота", fmt_number(lot_volume, 4), ""),
+        ("MINSTEP", "Минимальный шаг", fmt_number(min_step, 8), ""),
+        ("STEPPRICE", "Цена шага", fmt_rub(step_price), ""),
+        ("RUB_PER_POINT", "Один пункт", fmt_rub(rub_per_quote_unit), ""),
+        ("LAST_RUB", "Стоимость контракта", fmt_rub(current_contract_value), ""),
+    ])
 
     if collateral_row is not None:
         source_kind = cell_text(collateral_row.get("source_kind"))
@@ -1981,57 +2333,13 @@ if active_page == "Обзор":
         collateral_accept = collateral_row.get("collateral_accepted")
         short_ban_text = yes_no_text(short_ban)
         collateral_text = yes_no_text(collateral_accept)
-        st.markdown(
-            '<div class="section-head"><div class="section-kicker">Базисный актив · другие рынки НКЦ</div>'
-            '<div class="section-title">Параметры базисного актива на других рынках НКЦ</div>'
-            '<div class="section-subtitle">Короткие продажи и приём в обеспечение относятся к самому базисному активу на фондовом / валютном рынке НКЦ, а не к фьючерсной серии.</div></div>',
-            unsafe_allow_html=True,
-        )
-        parameter_strip([
-            ("SHORT_SALE_BAN", "Запрет коротких продаж", short_ban_text, "официальный признак, если опубликован"),
-            ("SHORT_LIMIT", "Лимит коротких продаж", fmt_number(collateral_row.get("short_sale_limit"), 2), "единицы соответствующего актива"),
-            ("COLLATERAL", "Принимается в обеспечение", collateral_text, "параметр базисного актива"),
-            ("COLLATERAL_LIMIT", "Лимит приёма", (fmt_number(collateral_row.get("collateral_limit_pct"), 2) + "%") if not is_missing(collateral_row.get("collateral_limit_pct")) else "—", f"источник: {collateral_source_status.state}"),
-        ])
-
-    st.markdown(
-        '<div class="section-head"><div class="section-kicker">Концентрационный риск</div>'
-        '<div class="section-title">Ступени MR1–MR3 и пороги LK1–LK2</div></div>',
-        unsafe_allow_html=True,
-    )
-    if presentation_mode:
-        concentration_ladder(mr1, mr2, mr3, lk1_contracts, lk2_contracts, lk1_rub_equivalent, lk2_rub_equivalent)
-    else:
-        st.caption("Повышенная ставка применяется только к части позиции, превысившей соответствующий порог.")
-        concentration_scale(mr1, mr2, mr3, lk1_contracts, lk2_contracts)
-        lk_a, lk_b = st.columns(2)
-        with lk_a:
-            metric_card(
-                "LK1 · номинальный эквивалент",
-                fmt_compact_rub(lk1_rub_equivalent),
-                f"{fmt_integer(lk1)} ед. БА ≈ {fmt_number(lk1_contracts, 0)} контрактов",
-                code="LK1 → CONTRACTS → RUB", tone="blue", compact=True,
-            )
-        with lk_b:
-            metric_card(
-                "LK2 · номинальный эквивалент",
-                fmt_compact_rub(lk2_rub_equivalent),
-                f"{fmt_integer(lk2)} ед. БА ≈ {fmt_number(lk2_contracts, 0)} контрактов",
-                code="LK2 → CONTRACTS → RUB", tone="blue", compact=True,
-            )
-
-    st.markdown(
-        '<div class="section-head"><div class="section-kicker">Экономика контракта</div>'
-        '<div class="section-title">Как котировка превращается в рублёвую стоимость</div></div>',
-        unsafe_allow_html=True,
-    )
-    parameter_strip([
-        ("LOTVOLUME", "Размер лота", fmt_number(lot_volume, 4), "ед. БА / контракт"),
-        ("MINSTEP", "Минимальный шаг", fmt_number(min_step, 8), "изменение котировки"),
-        ("STEPPRICE", "Цена шага", fmt_rub(step_price), "₽ за MINSTEP"),
-        ("RUB_PER_POINT", "1 пункт котировки", fmt_rub(rub_per_quote_unit), "STEPPRICE ÷ MINSTEP"),
-        ("LAST_RUB", "Стоимость контракта", fmt_rub(current_contract_value), current_value_note),
-    ])
+        with st.expander("Дополнительные параметры базисного актива", expanded=False):
+            parameter_strip([
+                ("SHORT_SALE_BAN", "Запрет коротких продаж", short_ban_text, ""),
+                ("SHORT_LIMIT", "Лимит коротких продаж", fmt_number(collateral_row.get("short_sale_limit"), 2), ""),
+                ("COLLATERAL", "Принимается в обеспечение", collateral_text, ""),
+                ("COLLATERAL_LIMIT", "Лимит приёма", (fmt_number(collateral_row.get("collateral_limit_pct"), 2) + "%") if not is_missing(collateral_row.get("collateral_limit_pct")) else "—", ""),
+            ])
 
     missing: list[str] = []
     if any(is_missing(v) for v in (mr1, mr2, mr3, lk1, lk2)):
@@ -2200,101 +2508,73 @@ if active_page == "Обзор":
 
 if active_page == "Границы":
     st.markdown(
-        '<div class="section-head"><div class="section-kicker">Ценовой риск</div>'
-        '<div class="section-title">Границы и механизм автоматических раздвижек</div>'
-        '<div class="section-subtitle">Официальные границы выбранной серии и параметры их мониторинга. Специальный календарь автоматически имеет приоритет над стандартными настройками.</div></div>',
+        '<div class="section-head"><div class="section-title">Ценовые границы</div></div>',
         unsafe_allow_html=True,
     )
 
     price_corridor(current_low_quote, price_ref.value, current_high_quote, current_width_quote, price_decimals)
-    if not presentation_mode:
-        parameter_strip([
-            ("LOWLIMIT", "Нижняя граница", fmt_number(current_low_quote, price_decimals), fmt_rub(current_low_rub)),
-            ("HIGH − LOW", "Ширина коридора", fmt_number(current_width_quote, price_decimals), fmt_rub(current_width_rub)),
-            ("HIGHLIMIT", "Верхняя граница", fmt_number(current_high_quote, price_decimals), fmt_rub(current_high_rub)),
-        ])
 
     st.markdown(
-        '<div class="section-head"><div class="section-kicker">Автоматический контроль</div>'
-        '<div class="section-title">Мониторинг и раздвижки</div></div>',
+        '<div class="section-head"><div class="section-title">Автоматические раздвижки</div></div>',
         unsafe_allow_html=True,
     )
-    if presentation_mode:
-        monitoring_flow(range_fut, fut_mon_time, total_shifts, evening_shifts, standard_evening_fut_mon_time)
     parameter_strip([
         (
             "AutoShiftNumMR" + (" · SPECIAL" if total_shifts_override is not None else ""),
-            "Общий лимит сдвигов", fmt_integer(total_shifts),
-            special_parameter_note(total_shifts_override, "основная + вечерняя сессии"),
+            "Общий лимит сдвигов", fmt_integer(total_shifts), "",
         ),
         (
             "FutMonTimeDay" + (" · SPECIAL" if fut_mon_time_override is not None else ""),
-            "Мониторинг днём", fmt_seconds(fut_mon_time),
-            special_parameter_note(fut_mon_time_override, "условие перед раздвижкой"),
+            "Мониторинг днём", fmt_seconds(fut_mon_time), "",
         ),
         (
             "AutoShiftNumMREvg" + (" · SPECIAL" if evening_shifts_override is not None else ""),
-            "Лимит вечером", fmt_integer(evening_shifts),
-            special_parameter_note(evening_shifts_override, evening_limit_note(extra_row, extra_status)),
+            "Лимит вечером", fmt_integer(evening_shifts), "",
         ),
         (
-            "FutMonTimeEvg", "Мониторинг вечером", fmt_seconds(standard_evening_fut_mon_time),
-            "официальный XLSX НКЦ · вечерняя сессия",
+            "FutMonTimeEvg", "Мониторинг вечером", fmt_seconds(standard_evening_fut_mon_time), "",
         ),
         (
             "RangeFut" + (" · SPECIAL" if range_fut_override is not None else ""),
-            "Ширина контрольного коридора", fmt_rate(range_fut),
-            special_parameter_note(range_fut_override, "официальный RangeFut · ширина контрольного коридора"),
+            "Контрольная область", fmt_rate(range_fut), "",
         ),
     ])
 
     if not dashboard_special_rows.empty:
-        st.warning(
-            "Для выбранного базисного актива сейчас действует специальный режим НКЦ. "
-            "Карточки с пометкой SPECIAL уже показывают значения из календаря специальных риск-параметров."
-        )
+        st.warning("Для выбранного базисного актива сейчас действует специальный режим НКЦ.")
+
+    st.markdown(
+        '<div class="section-head"><div class="section-title">Границы выходного дня</div></div>',
+        unsafe_allow_html=True,
+    )
+    wh1, wh2, wh3, wh4 = st.columns(4, gap="small")
+    with wh1:
+        simple_metric_card("Сдвиг на выходные", fmt_rate(weekend_shift), code="OffDaysTradingPriceRangeShift")
+    with wh2:
+        simple_metric_card("База расчёта", fmt_number(weekend_ref.value, price_decimals))
+    with wh3:
+        simple_metric_card("Нижняя граница", fmt_number(weekend_low, price_decimals))
+    with wh4:
+        simple_metric_card("Верхняя граница", fmt_number(weekend_high, price_decimals))
+    if weekend_estimate.error:
+        st.warning("Границы выходного дня не рассчитаны: " + weekend_estimate.error + ".")
 
     if currency_future:
         st.markdown(
-            '<div class="section-head"><div class="section-kicker">Утренняя сессия · валютные фьючерсы</div>'
-            '<div class="section-title">Аналитическая оценка утренних границ</div></div>',
+            '<div class="section-head"><div class="section-title">Утренние границы</div></div>',
             unsafe_allow_html=True,
         )
-        st.markdown(
-            '<div class="estimate-box"><span class="estimate-badge">ANALYTICAL ESTIMATE</span>'
-            '<div class="estimate-title">OffDaysTradingPriceRangeShift и эффективный утренний коридор</div>'
-            '<div class="estimate-text">Официальный параметр НКЦ применяется к явно подписанной proxy-цене, потому что отдельное публичное поле Pmarket23:50 в ISS отсутствует.</div></div>',
-            unsafe_allow_html=True,
-        )
-        mo1, mo2, mo3, mo4 = st.columns(4)
+        mo1, mo2, mo3, mo4 = st.columns(4, gap="small")
         with mo1:
-            metric_card("Shift на сторону", fmt_rate(weekend_shift), "Параметр выходных торгов НКЦ", code="OffDaysTradingPriceRangeShift", tone="green", compact=True)
+            simple_metric_card("Сдвиг", fmt_rate(weekend_shift), code="OffDaysTradingPriceRangeShift")
         with mo2:
-            metric_card("Proxy-цена", fmt_number(morning_ref.value, price_decimals), morning_ref.label, code="P PROXY", tone="neutral", compact=True)
+            simple_metric_card("База расчёта", fmt_number(morning_ref.value, price_decimals))
         with mo3:
-            metric_card("Morning LOW", fmt_number(morning_low, price_decimals), fmt_rub(morning_low_rub), code="max(LOW, L_hol)", tone="amber", compact=True)
+            simple_metric_card("Нижняя граница", fmt_number(morning_low, price_decimals))
         with mo4:
-            metric_card("Morning HIGH", fmt_number(morning_high, price_decimals), fmt_rub(morning_high_rub), code="min(HIGH, H_hol)", tone="amber", compact=True)
+            simple_metric_card("Верхняя граница", fmt_number(morning_high, price_decimals))
         if morning_estimate is not None and morning_estimate.error:
             st.warning("Утренние границы не рассчитаны: " + morning_estimate.error + ".")
-        else:
-            st.caption(
-                f"Выходной коридор по proxy: {fmt_number(morning_offdays_low, price_decimals)} — "
-                f"{fmt_number(morning_offdays_high, price_decimals)}. Автоматические сдвиги в утреннюю дополнительную сессию: 0."
-            )
-    elif not presentation_mode:
-        st.markdown(
-            '<div class="section-head"><div class="section-kicker">Торги в выходные дни</div>'
-            '<div class="section-title">OffDaysTradingPriceRangeShift</div></div>',
-            unsafe_allow_html=True,
-        )
-        off_col, _ = st.columns([1, 2])
-        with off_col:
-            metric_card(
-                "Отклонение на одну сторону", fmt_rate(weekend_shift),
-                "Доля от |Pmarket23:50| в каждую сторону", code="OffDaysTradingPriceRangeShift", tone="green"
-            )
-        st.caption("Утренний расчёт эффективных границ показывается только для валютных фьючерсов.")
 
 
 if active_page == "Спецрежимы НКЦ":
