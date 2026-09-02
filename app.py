@@ -1921,7 +1921,35 @@ current_width_rub = (
     else None
 )
 
-morning_ref = morning_reference_price(contract_row)
+# Weekend-session limits. NCC publishes OffDaysTradingPriceRangeShift for every
+# underlying. The methodology uses Pmarket23:50 as the centre of the holiday
+# corridor. That value is not exposed as a dedicated public ISS field, so the
+# dashboard uses an explicitly labelled proxy unless a captured 23:50 snapshot
+# is available in a future version.
+weekend_ref = morning_reference_price(contract_row)
+weekend_estimate = estimate_morning_limits(
+    current_low=current_low_quote,
+    current_high=current_high_quote,
+    reference_price=weekend_ref.value,
+    offdays_shift=weekend_shift,
+)
+weekend_low = weekend_estimate.effective_low
+weekend_high = weekend_estimate.effective_high
+weekend_offdays_low = weekend_estimate.offdays_low
+weekend_offdays_high = weekend_estimate.offdays_high
+weekend_low_rub = None
+weekend_high_rub = None
+if contract_row is not None:
+    weekend_low_rub = price_to_rub(
+        weekend_low, contract_row.get("minstep"), contract_row.get("stepprice")
+    )
+    weekend_high_rub = price_to_rub(
+        weekend_high, contract_row.get("minstep"), contract_row.get("stepprice")
+    )
+
+# The morning currency block uses the same OffDays restriction. Keep separate
+# names because the UI explains the morning-session interpretation explicitly.
+morning_ref = weekend_ref
 morning_estimate = None
 morning_low = None
 morning_high = None
@@ -1930,23 +1958,13 @@ morning_high_rub = None
 morning_offdays_low = None
 morning_offdays_high = None
 if currency_future:
-    morning_estimate = estimate_morning_limits(
-        current_low=current_low_quote,
-        current_high=current_high_quote,
-        reference_price=morning_ref.value,
-        offdays_shift=weekend_shift,
-    )
-    morning_low = morning_estimate.effective_low
-    morning_high = morning_estimate.effective_high
-    morning_offdays_low = morning_estimate.offdays_low
-    morning_offdays_high = morning_estimate.offdays_high
-    if contract_row is not None:
-        morning_low_rub = price_to_rub(
-            morning_low, contract_row.get("minstep"), contract_row.get("stepprice")
-        )
-        morning_high_rub = price_to_rub(
-            morning_high, contract_row.get("minstep"), contract_row.get("stepprice")
-        )
+    morning_estimate = weekend_estimate
+    morning_low = weekend_low
+    morning_high = weekend_high
+    morning_offdays_low = weekend_offdays_low
+    morning_offdays_high = weekend_offdays_high
+    morning_low_rub = weekend_low_rub
+    morning_high_rub = weekend_high_rub
 
 lk1_contracts = contracts_at_limit(lk1, lot_volume)
 lk2_contracts = contracts_at_limit(lk2, lot_volume)
@@ -2254,6 +2272,50 @@ if active_page == "Границы":
             "Карточки с пометкой SPECIAL уже показывают значения из календаря специальных риск-параметров."
         )
 
+    st.markdown(
+        '<div class="section-head"><div class="section-kicker">Дополнительная сессия выходного дня</div>'
+        '<div class="section-title">Границы на выходные</div>'
+        '<div class="section-subtitle">Официальный OffDaysTradingPriceRangeShift НКЦ + ограничение текущим LOW/HIGH. Центр Pmarket23:50 пока показывается через явно подписанную proxy-цену.</div></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="estimate-box"><span class="estimate-badge">ANALYTICAL ESTIMATE</span>'
+        '<div class="estimate-title">Эффективный коридор дополнительной сессии выходного дня</div>'
+        '<div class="estimate-text">По Методике НКЦ: H_hol = Pmarket23:50 + s×|Pmarket23:50|, L_hol = Pmarket23:50 − s×|Pmarket23:50|; фактическая верхняя граница — min(HIGH, H_hol), нижняя — max(LOW, L_hol). В течение самой выходной сессии эти границы не пересматриваются.</div></div>',
+        unsafe_allow_html=True,
+    )
+    wh1, wh2, wh3, wh4 = st.columns(4)
+    with wh1:
+        metric_card(
+            "Shift на сторону", fmt_rate(weekend_shift),
+            "официальный параметр НКЦ", code="OffDaysTradingPriceRangeShift",
+            tone="green", compact=True,
+        )
+    with wh2:
+        metric_card(
+            "База Pmarket23:50", fmt_number(weekend_ref.value, price_decimals),
+            weekend_ref.label, code="P PROXY", tone="neutral", compact=True,
+        )
+    with wh3:
+        metric_card(
+            "Weekend LOW", fmt_number(weekend_low, price_decimals),
+            fmt_rub(weekend_low_rub), code="max(LOW, L_hol)", tone="amber", compact=True,
+        )
+    with wh4:
+        metric_card(
+            "Weekend HIGH", fmt_number(weekend_high, price_decimals),
+            fmt_rub(weekend_high_rub), code="min(HIGH, H_hol)", tone="amber", compact=True,
+        )
+    if weekend_estimate.error:
+        st.warning("Границы на выходные не рассчитаны: " + weekend_estimate.error + ".")
+    else:
+        st.caption(
+            f"Чистый OffDays-коридор по proxy: {fmt_number(weekend_offdays_low, price_decimals)} — "
+            f"{fmt_number(weekend_offdays_high, price_decimals)}. "
+            "Значения Weekend LOW/HIGH выше уже учитывают одновременное ограничение текущими LOWLIMIT/HIGHLIMIT. "
+            "Для точного официального значения нужен Pmarket23:50 НКЦ; пока блок помечен как аналитическая оценка."
+        )
+
     if currency_future:
         st.markdown(
             '<div class="section-head"><div class="section-kicker">Утренняя сессия · валютные фьючерсы</div>'
@@ -2282,19 +2344,6 @@ if active_page == "Границы":
                 f"Выходной коридор по proxy: {fmt_number(morning_offdays_low, price_decimals)} — "
                 f"{fmt_number(morning_offdays_high, price_decimals)}. Автоматические сдвиги в утреннюю дополнительную сессию: 0."
             )
-    elif not presentation_mode:
-        st.markdown(
-            '<div class="section-head"><div class="section-kicker">Торги в выходные дни</div>'
-            '<div class="section-title">OffDaysTradingPriceRangeShift</div></div>',
-            unsafe_allow_html=True,
-        )
-        off_col, _ = st.columns([1, 2])
-        with off_col:
-            metric_card(
-                "Отклонение на одну сторону", fmt_rate(weekend_shift),
-                "Доля от |Pmarket23:50| в каждую сторону", code="OffDaysTradingPriceRangeShift", tone="green"
-            )
-        st.caption("Утренний расчёт эффективных границ показывается только для валютных фьючерсов.")
 
 
 if active_page == "Спецрежимы НКЦ":
