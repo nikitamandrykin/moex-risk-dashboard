@@ -147,7 +147,7 @@ html, body, [class*="css"] { color: var(--ink); }
   color: var(--accent);
   margin-bottom: .35rem;
 }
-.hero h1 { margin: 0; font-size: 1.9rem; line-height: 1.15; letter-spacing: -.025em; }
+.hero h1 { margin: 0; font-size: 1.9rem; line-height: 1.18; letter-spacing: -.025em; }
 .hero p { margin: .45rem 0 0 0; color: var(--muted); max-width: 850px; }
 
 .asset-panel {
@@ -1334,7 +1334,7 @@ if presentation_mode:
         """
 <div class="hero presentation-hero">
   <div class="presentation-hero-row">
-    <div><h1>MOEX Risk Dashboard</h1><p>Практическая аналитика риск-параметров фьючерсов MOEX / НКЦ.</p></div>
+    <div><h1>MOEX Risk Dashboard</h1></div>
     <div class="presentation-hero-tag">DERIVATIVES RISK ANALYTICS</div>
   </div>
 </div>
@@ -1346,10 +1346,10 @@ if presentation_mode:
     st.markdown(
         """
 <style>
-.block-container { padding-top:.30rem; }
-.presentation-hero { padding:.48rem .9rem; margin-bottom:.22rem; }
-.presentation-hero h1 { font-size:1.42rem; }
-.presentation-hero p { font-size:.68rem; }
+.block-container { padding-top:.95rem; }
+.presentation-hero { padding:.82rem 1rem .76rem; margin-bottom:.28rem; }
+.presentation-hero-row { align-items:flex-start; }
+.presentation-hero h1 { font-size:1.62rem; line-height:1.18; margin:0; }
 .section-head { margin:.55rem 0 .26rem; }
 .section-title { font-size:1rem; }
 .section-subtitle { font-size:.68rem; }
@@ -1374,7 +1374,6 @@ else:
 <div class="hero">
   <div class="hero-kicker">MOEX · NCC · DERIVATIVES RISK ANALYTICS</div>
   <h1>MOEX Risk Dashboard</h1>
-  <p>Практическая аналитика риск-параметров фьючерсов MOEX / НКЦ.</p>
 </div>
 """,
         unsafe_allow_html=True,
@@ -3123,14 +3122,3 @@ if active_page == "Методика":
             "результат дополнительно ограничивается AutoShiftNumMREvg."
         )
 
-
-if PUBLIC_DEPLOYMENT:
-    st.markdown(
-        """
-<div style="margin-top:1.2rem;padding-top:.75rem;border-top:1px solid #E6EAF0;color:#667085;font-size:.72rem;line-height:1.45;">
-MOEX Risk Dashboard — аналитический интерфейс на основе официальных данных MOEX / НКЦ.
-Расчёт ГО сверх первого уровня и утренние валютные границы являются аналитическими оценками и не заменяют официальный клиринговый расчёт НКЦ.
-</div>
-""",
-        unsafe_allow_html=True,
-    )
