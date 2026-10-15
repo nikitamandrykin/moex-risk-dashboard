@@ -7,11 +7,18 @@ from zoneinfo import ZoneInfo
 import html
 import math
 import os
+from time import perf_counter, time
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
+from services.data_freshness import (
+    SNAPSHOT_TTL_SECONDS,
+    AUTO_REFRESH_POLL_SECONDS,
+    snapshot_expired,
+    fetched_at_label,
+)
 from services.loaders import (
     SourceStatus,
     latest_row,
@@ -1251,16 +1258,15 @@ def load_risk_history_cached():
     return load_risk_history()
 
 
-SOURCE_BUNDLE_KEY = "_source_bundle_v096"
+SOURCE_BUNDLE_KEY = "_source_bundle_v097"
 COLLATERAL_BUNDLE_KEY = "_collateral_bundle_v11"
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=SNAPSHOT_TTL_SECONDS, show_spinner=False)
 def load_all_sources_cached():
     """Load independent official sources in parallel.
 
-    Ordinary widget interactions reuse a session snapshot and therefore never
-    trigger network I/O. This cached parallel loader is used on the first run
-    of a browser session and after an explicit refresh.
+    Widget interactions reuse a session snapshot. A periodic heartbeat invalidates
+    it at the shared cache TTL, so an open browser eventually receives new data.
     """
     jobs = {
         "market": lambda: load_dataset(
@@ -1302,9 +1308,24 @@ def load_all_sources_cached():
             manual_path=BASE_DIR / "runtime_cache" / "special_risk_calendar_manual.xlsx",
         ),
     }
+    total_started = perf_counter()
+    def timed_load(name, job):
+        started = perf_counter()
+        try:
+            return job()
+        finally:
+            print(
+                f"[MOEX PERF] source={name} duration_s={perf_counter() - started:.3f}",
+                flush=True,
+            )
+
     with ThreadPoolExecutor(max_workers=len(jobs), thread_name_prefix="moex-source") as pool:
-        futures = {name: pool.submit(job) for name, job in jobs.items()}
+        futures = {name: pool.submit(timed_load, name, job) for name, job in jobs.items()}
         results = {name: future.result() for name, future in futures.items()}
+    print(
+        f"[MOEX PERF] all_sources duration_s={perf_counter() - total_started:.3f}",
+        flush=True,
+    )
     market, market_status = results["market"]
     static, static_status = results["static"]
     evening, evening_status = results["evening"]
@@ -1314,6 +1335,7 @@ def load_all_sources_cached():
     return (
         market, market_status, static, static_status, evening, evening_status,
         offdays, offdays_status, contracts, contracts_status, special, special_status,
+        time(),
     )
 
 if PUBLIC_DEPLOYMENT:
@@ -1421,7 +1443,7 @@ if SOURCE_BUNDLE_KEY not in st.session_state:
 (
     market_df, market_status, static_df, static_status, extra_df, extra_status,
     offdays_df, offdays_status, contracts_df, contracts_status,
-    special_calendar_df, special_calendar_status,
+    special_calendar_df, special_calendar_status, source_fetched_at,
 ) = st.session_state[SOURCE_BUNDLE_KEY]
 
 # Uploaded data has priority over configured/live/fallback sources.
@@ -1479,11 +1501,31 @@ def refresh_data() -> None:
 
 
 if presentation_mode:
-    st.sidebar.button("🔄 Обновить данные", on_click=refresh_data, use_container_width=True)
+    st.sidebar.button("🔄 Обновить данные", on_click=refresh_data, width="stretch")
     if PUBLIC_DEPLOYMENT:
         st.sidebar.caption("Обновляет снимок вашей сессии. Общий сетевой кэш ограничивает частоту запросов к MOEX / НКЦ.")
     else:
         st.sidebar.caption("Обычные клики используют снимок текущей сессии и не запускают сетевые запросы.")
+
+if PUBLIC_DEPLOYMENT:
+    st.sidebar.toggle(
+        "Автообновление (~5 минут)",
+        value=True,
+        key="moex_auto_refresh",
+        help="Проверяет возраст серверного снимка раз в минуту и обновляет "
+             "данные не чаще общего TTL в 5 минут. Это не частота сделок MOEX.",
+    )
+
+    @st.fragment(run_every=AUTO_REFRESH_POLL_SECONDS)
+    def _auto_refresh_sources():
+        if not st.session_state.get("moex_auto_refresh", True):
+            return
+        bundle = st.session_state.get(SOURCE_BUNDLE_KEY)
+        if bundle is not None and snapshot_expired(bundle[-1], time()):
+            st.session_state.pop(SOURCE_BUNDLE_KEY, None)
+            st.rerun()
+
+    _auto_refresh_sources()
 
 source_statuses = [
     market_status, static_status, contracts_status, offdays_status,
@@ -1503,6 +1545,22 @@ source_meta_parts = [
 if source_snapshot_count:
     source_meta_parts.append(f"{source_snapshot_count} из снимка/кеша")
 source_meta = " · ".join(source_meta_parts)
+if PUBLIC_DEPLOYMENT:
+    st.caption(
+        f"Снимок получен сервером: {fetched_at_label(source_fetched_at)} · "
+        f"Контракты ISS (отметка времени данных): {contracts_status.updated_at or '—'} · "
+        f"MR/LK (отметка данных): {market_status.updated_at or '—'} · "
+        f"Источников live: {source_live_count}/{len(source_statuses)}. "
+        "Время получения и время последней сделки могут отличаться."
+    )
+    unavailable = [s.name for s in source_statuses if s.state != "live"]
+    if unavailable:
+        st.warning(
+            "Не все источники доступны в live-режиме: "
+            + ", ".join(unavailable)
+            + ". Для отдельных показателей используются сохранённые данные "
+              "или источник недоступен — проверяйте дату набора."
+        )
 if not presentation_mode:
     st.markdown(
         f'<div class="summary-strip"><div class="summary-left"><span class="summary-dot {source_dot}"></span>'
@@ -1545,7 +1603,7 @@ if not presentation_mode:
                     for status in source_statuses
                 ]
             ),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
         st.caption(
@@ -1736,6 +1794,30 @@ if active_page == "Мониторинг":
         "↔ равноудалённость не означает низкий риск: при узком коридоре обе границы могут быть близко."
     )
 
+    search_col, detail_col = st.columns([3, 1], gap="medium")
+    with search_col:
+        monitor_search = st.text_input(
+            "Поиск инструмента",
+            placeholder="Код БА, название или тикер контракта",
+            key="monitor_search",
+        )
+    with detail_col:
+        monitor_detailed = st.toggle(
+            "Все столбцы",
+            value=False,
+            key="monitor_detailed",
+            help="Включает LOW/HIGH, расстояния до обеих границ и технические поля.",
+        )
+
+    if monitor_search.strip():
+        query = monitor_search.strip()
+        matched = (
+            filtered_monitor["assetcode"].astype("string").str.contains(query, case=False, regex=False, na=False)
+            | filtered_monitor["secid"].astype("string").str.contains(query, case=False, regex=False, na=False)
+            | filtered_monitor["title"].astype("string").str.contains(query, case=False, regex=False, na=False)
+        )
+        filtered_monitor = filtered_monitor[matched]
+
     display = filtered_monitor.reset_index(drop=True).copy()
     status_icons = {
         "OUTSIDE LOW": "🔴 OUTSIDE LOW", "OUTSIDE HIGH": "🔴 OUTSIDE HIGH",
@@ -1767,9 +1849,15 @@ if active_page == "Мониторинг":
         "Ближайшая граница", "До ближайшей, %", "Положение, %",
         "LOW", "HIGH", "До LOW, %", "До HIGH, %", "Special",
     ]]
+    if not monitor_detailed:
+        table = table[[
+            "Статус", "БА", "Контракт", "Цена",
+            "Источник цены", "Ближайшая граница",
+            "До ближайшей, %", "Положение, %",
+        ]]
 
     event = st.dataframe(
-        table, use_container_width=True, hide_index=True,
+        table, width="stretch", hide_index=True,
         height=min(650, 86 + 35 * max(1, len(table))),
         on_select="rerun", selection_mode="single-row", key="market_monitor_table",
         column_config={
@@ -1808,7 +1896,7 @@ if active_page == "Мониторинг":
             )
             st.button(
                 f"Открыть {selected['assetcode']} · {selected['secid']} в карточке контракта →",
-                type="primary", use_container_width=True,
+                type="primary", width="stretch",
                 on_click=open_contract_from_monitor,
                 args=(str(selected["assetcode"]), str(selected["secid"])),
             )
@@ -1967,7 +2055,7 @@ if active_page == "Мониторинг":
                 )
                 st.altair_chart(
                     (corridor + low_line + high_line + price_line).properties(height=315),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 st.markdown("**Расстояние до ближайшей границы**")
@@ -1991,7 +2079,7 @@ if active_page == "Мониторинг":
                 ).encode(y="threshold:Q")
                 st.altair_chart(
                     (nearest_chart + watch_rule + critical_rule).properties(height=300),
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.caption(
                     f"Пунктирные уровни: WATCH = {attention_threshold:.2f}% · CRITICAL = {MONITOR_CRITICAL_THRESHOLD:.2f}%. "
@@ -2504,7 +2592,7 @@ if active_page == "Обзор":
             technical_df = pd.DataFrame(technical_rows)
             st.dataframe(
                 technical_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height=min(1200, 36 * len(technical_df) + 38),
                 column_config={
@@ -2695,7 +2783,7 @@ if active_page == "Спецрежимы НКЦ":
             active_display["Зарубежная площадка"] = active_display.get("market_group", "")
             st.dataframe(
                 active_display[["Событие / площадка", "Зарубежная площадка", "Параметр", "Что меняется", "Значение", "Единица", "Начало", "Окончание"]],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -2715,7 +2803,7 @@ if active_page == "Спецрежимы НКЦ":
                     future_display[["Дата праздника", "Событие", "Начало", "Окончание", "Параметр", "Значение", "unit"]].rename(
                         columns={"unit": "Единица"}
                     ),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
 
@@ -2739,7 +2827,7 @@ if active_page == "Спецрежимы НКЦ":
                     calendar_display[display_columns].rename(
                         columns={"assetcode": "Код БА", "asset_title": "Базисный актив"}
                     ),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=520,
                 )
@@ -2788,15 +2876,15 @@ if active_page == "Калькулятор ГО":
             st.caption("Быстрый переход через концентрационные пороги")
             q1, q2, q3, q4, q5 = st.columns(5)
             with q1:
-                st.button("1", key=f"q1_{calc_key}", use_container_width=True, on_click=set_session_number, args=(calc_key, 1), help="1 контракт")
+                st.button("1", key=f"q1_{calc_key}", width="stretch", on_click=set_session_number, args=(calc_key, 1), help="1 контракт")
             with q2:
-                st.button("LK1", key=f"qlk1_{calc_key}", use_container_width=True, disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, lk1_demo or 0))
+                st.button("LK1", key=f"qlk1_{calc_key}", width="stretch", disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, lk1_demo or 0))
             with q3:
-                st.button("LK1 + 1", key=f"qlk1p_{calc_key}", use_container_width=True, disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, (lk1_demo or 0) + 1))
+                st.button("LK1 + 1", key=f"qlk1p_{calc_key}", width="stretch", disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, (lk1_demo or 0) + 1))
             with q4:
-                st.button("LK2", key=f"qlk2_{calc_key}", use_container_width=True, disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, lk2_demo or 0))
+                st.button("LK2", key=f"qlk2_{calc_key}", width="stretch", disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, lk2_demo or 0))
             with q5:
-                st.button("LK2 + 1", key=f"qlk2p_{calc_key}", use_container_width=True, disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, (lk2_demo or 0) + 1))
+                st.button("LK2 + 1", key=f"qlk2p_{calc_key}", width="stretch", disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, (lk2_demo or 0) + 1))
     else:
         calculator_position_contracts = st.number_input(
             "Количество контрактов", min_value=0, value=1, step=1, key=calc_key,
@@ -2805,15 +2893,15 @@ if active_page == "Калькулятор ГО":
         st.caption("Быстрый demo: покажите переход ставки на превышении порога одним кликом.")
         q1, q2, q3, q4, q5 = st.columns(5)
         with q1:
-            st.button("1 контракт", key=f"q1_{calc_key}", use_container_width=True, on_click=set_session_number, args=(calc_key, 1))
+            st.button("1 контракт", key=f"q1_{calc_key}", width="stretch", on_click=set_session_number, args=(calc_key, 1))
         with q2:
-            st.button("LK1", key=f"qlk1_{calc_key}", use_container_width=True, disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, lk1_demo or 0))
+            st.button("LK1", key=f"qlk1_{calc_key}", width="stretch", disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, lk1_demo or 0))
         with q3:
-            st.button("LK1 + 1", key=f"qlk1p_{calc_key}", use_container_width=True, disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, (lk1_demo or 0) + 1))
+            st.button("LK1 + 1", key=f"qlk1p_{calc_key}", width="stretch", disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, (lk1_demo or 0) + 1))
         with q4:
-            st.button("LK2", key=f"qlk2_{calc_key}", use_container_width=True, disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, lk2_demo or 0))
+            st.button("LK2", key=f"qlk2_{calc_key}", width="stretch", disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, lk2_demo or 0))
         with q5:
-            st.button("LK2 + 1", key=f"qlk2p_{calc_key}", use_container_width=True, disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, (lk2_demo or 0) + 1))
+            st.button("LK2 + 1", key=f"qlk2p_{calc_key}", width="stretch", disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, (lk2_demo or 0) + 1))
 
     calculator_position_margin = progressive_position_margin(
         calculator_position_contracts,
@@ -2934,7 +3022,7 @@ if active_page == "Калькулятор ГО":
                     },
                 ]
             )
-            st.dataframe(calculator_breakdown, use_container_width=True, hide_index=True)
+            st.dataframe(calculator_breakdown, width="stretch", hide_index=True)
 
         st.caption(
             "Оценка использует официальный INITIALMARGIN первого уровня и масштабирует следующие ступени "
@@ -3052,7 +3140,7 @@ if active_page == "Методика":
                         }
                     )
             if example_rows:
-                st.dataframe(pd.DataFrame(example_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(example_rows), width="stretch", hide_index=True)
 
         st.markdown("#### 5. ГО позиции по уровням концентрации")
         st.latex(r"N_{LK1}=\frac{LK1}{LOTVOLUME},\qquad N_{LK2}=\frac{LK2}{LOTVOLUME}")

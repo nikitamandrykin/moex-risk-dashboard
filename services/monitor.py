@@ -88,11 +88,20 @@ def build_market_monitor(
         return pd.DataFrame()
 
     check_at = check_at or datetime.now(MOSCOW_TZ)
+    asof_date = pd.Timestamp(check_at)
+    if asof_date.tzinfo is not None:
+        asof_date = asof_date.tz_convert(MOSCOW_TZ).tz_localize(None)
+    asof_date = asof_date.normalize()
     codes = sorted({str(x).strip() for x in contracts_df["assetcode"].dropna() if str(x).strip()})
     rows: list[dict[str, object]] = []
 
     for code in codes:
-        candidates = contracts_for_asset(contracts_df, code)
+        candidates = contracts_for_asset(contracts_df, code, today=asof_date)
+        if "lasttradedate" in candidates.columns:
+            # contracts_for_asset falls back to expired series if no active ones
+            # exist; Risk Radar must never present them as active.
+            trading_end = pd.to_datetime(candidates["lasttradedate"], errors="coerce")
+            candidates = candidates[trading_end.isna() | (trading_end >= asof_date)]
         if candidates.empty:
             continue
 
