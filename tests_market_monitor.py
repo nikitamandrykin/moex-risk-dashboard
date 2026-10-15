@@ -39,6 +39,24 @@ assert classify_asset_group("1MFR", "1 month rate future") == "Ставки"
 assert classify_asset_group("HANG", "Hang Seng") == "Индексы"
 assert classify_asset_group("AI92", "Фьючерс на бензин АИ-92") == "Товары"
 
+# A past series must never be shown as the nearest *active* future.
+# Use Moscow as-of date; the Railway server itself may run on UTC.
+cross_date = datetime(2026, 10, 15, 12, 0, tzinfo=ZoneInfo("Europe/Moscow"))
+cross_contracts = pd.DataFrame([
+    {"assetcode": "OLD", "secid": "OLDU6", "shortname": "old series", "last": 99.0,
+     "lowlimit": 80.0, "highlimit": 100.0,
+     "lasttradedate": pd.Timestamp("2026-09-15"), "openposition": 10},
+    {"assetcode": "NEW", "secid": "NEWZ6", "shortname": "new series", "last": 99.0,
+     "lowlimit": 80.0, "highlimit": 100.0,
+     "lasttradedate": pd.Timestamp("2026-12-15"), "openposition": 10},
+    {"assetcode": "NEW", "secid": "NEWU6", "shortname": "old NEW series", "last": 99.5,
+     "lowlimit": 80.0, "highlimit": 100.0,
+     "lasttradedate": pd.Timestamp("2026-09-15"), "openposition": 10},
+])
+cross_radar = build_market_monitor(cross_contracts, market, special, check_at=cross_date)
+assert set(cross_radar["assetcode"]) == {"NEW"}
+assert cross_radar.iloc[0]["secid"] == "NEWZ6"
+
 security_html = '''<table><tr><td>SBER</td><td>RU0009029540</td><td>Сбербанк</td><td>Нет</td><td>123</td><td>Да</td><td>Да</td><td>100</td><td>90</td></tr></table>'''.encode('utf-8')
 sec = parse_security_params_html(security_html)
 assert len(sec) == 1
