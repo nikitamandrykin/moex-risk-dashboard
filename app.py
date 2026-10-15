@@ -7,12 +7,18 @@ from zoneinfo import ZoneInfo
 import html
 import math
 import os
-from time import perf_counter
+from time import perf_counter, time
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
+from services.data_freshness import (
+    SNAPSHOT_TTL_SECONDS,
+    AUTO_REFRESH_POLL_SECONDS,
+    snapshot_expired,
+    fetched_at_label,
+)
 from services.loaders import (
     SourceStatus,
     latest_row,
@@ -1252,16 +1258,15 @@ def load_risk_history_cached():
     return load_risk_history()
 
 
-SOURCE_BUNDLE_KEY = "_source_bundle_v096"
+SOURCE_BUNDLE_KEY = "_source_bundle_v097"
 COLLATERAL_BUNDLE_KEY = "_collateral_bundle_v11"
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=SNAPSHOT_TTL_SECONDS, show_spinner=False)
 def load_all_sources_cached():
     """Load independent official sources in parallel.
 
-    Ordinary widget interactions reuse a session snapshot and therefore never
-    trigger network I/O. This cached parallel loader is used on the first run
-    of a browser session and after an explicit refresh.
+    Widget interactions reuse a session snapshot. A periodic heartbeat invalidates
+    it at the shared cache TTL, so an open browser eventually receives new data.
     """
     jobs = {
         "market": lambda: load_dataset(
@@ -1330,6 +1335,7 @@ def load_all_sources_cached():
     return (
         market, market_status, static, static_status, evening, evening_status,
         offdays, offdays_status, contracts, contracts_status, special, special_status,
+        time(),
     )
 
 if PUBLIC_DEPLOYMENT:
@@ -1437,7 +1443,7 @@ if SOURCE_BUNDLE_KEY not in st.session_state:
 (
     market_df, market_status, static_df, static_status, extra_df, extra_status,
     offdays_df, offdays_status, contracts_df, contracts_status,
-    special_calendar_df, special_calendar_status,
+    special_calendar_df, special_calendar_status, source_fetched_at,
 ) = st.session_state[SOURCE_BUNDLE_KEY]
 
 # Uploaded data has priority over configured/live/fallback sources.
@@ -1501,6 +1507,26 @@ if presentation_mode:
     else:
         st.sidebar.caption("Обычные клики используют снимок текущей сессии и не запускают сетевые запросы.")
 
+if PUBLIC_DEPLOYMENT:
+    st.sidebar.toggle(
+        "Автообновление (~5 минут)",
+        value=True,
+        key="moex_auto_refresh",
+        help="Проверяет возраст серверного снимка раз в минуту и обновляет "
+             "данные не чаще общего TTL в 5 минут. Это не частота сделок MOEX.",
+    )
+
+    @st.fragment(run_every=AUTO_REFRESH_POLL_SECONDS)
+    def _auto_refresh_sources():
+        if not st.session_state.get("moex_auto_refresh", True):
+            return
+        bundle = st.session_state.get(SOURCE_BUNDLE_KEY)
+        if bundle is not None and snapshot_expired(bundle[-1], time()):
+            st.session_state.pop(SOURCE_BUNDLE_KEY, None)
+            st.rerun()
+
+    _auto_refresh_sources()
+
 source_statuses = [
     market_status, static_status, contracts_status, offdays_status,
     extra_status, special_calendar_status,
@@ -1519,6 +1545,22 @@ source_meta_parts = [
 if source_snapshot_count:
     source_meta_parts.append(f"{source_snapshot_count} из снимка/кеша")
 source_meta = " · ".join(source_meta_parts)
+if PUBLIC_DEPLOYMENT:
+    st.caption(
+        f"Снимок получен сервером: {fetched_at_label(source_fetched_at)} · "
+        f"Контракты ISS (отметка времени данных): {contracts_status.updated_at or '—'} · "
+        f"MR/LK (отметка данных): {market_status.updated_at or '—'} · "
+        f"Источников live: {source_live_count}/{len(source_statuses)}. "
+        "Время получения и время последней сделки могут отличаться."
+    )
+    unavailable = [s.name for s in source_statuses if s.state != "live"]
+    if unavailable:
+        st.warning(
+            "Не все источники доступны в live-режиме: "
+            + ", ".join(unavailable)
+            + ". Для отдельных показателей используются сохранённые данные "
+              "или источник недоступен — проверяйте дату набора."
+        )
 if not presentation_mode:
     st.markdown(
         f'<div class="summary-strip"><div class="summary-left"><span class="summary-dot {source_dot}"></span>'
