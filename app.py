@@ -1794,6 +1794,30 @@ if active_page == "Мониторинг":
         "↔ равноудалённость не означает низкий риск: при узком коридоре обе границы могут быть близко."
     )
 
+    search_col, detail_col = st.columns([3, 1], gap="medium")
+    with search_col:
+        monitor_search = st.text_input(
+            "Поиск инструмента",
+            placeholder="Код БА, название или тикер контракта",
+            key="monitor_search",
+        )
+    with detail_col:
+        monitor_detailed = st.toggle(
+            "Все столбцы",
+            value=False,
+            key="monitor_detailed",
+            help="Включает LOW/HIGH, расстояния до обеих границ и технические поля.",
+        )
+
+    if monitor_search.strip():
+        query = monitor_search.strip()
+        matched = (
+            filtered_monitor["assetcode"].astype("string").str.contains(query, case=False, regex=False, na=False)
+            | filtered_monitor["secid"].astype("string").str.contains(query, case=False, regex=False, na=False)
+            | filtered_monitor["title"].astype("string").str.contains(query, case=False, regex=False, na=False)
+        )
+        filtered_monitor = filtered_monitor[matched]
+
     display = filtered_monitor.reset_index(drop=True).copy()
     status_icons = {
         "OUTSIDE LOW": "🔴 OUTSIDE LOW", "OUTSIDE HIGH": "🔴 OUTSIDE HIGH",
@@ -1825,6 +1849,12 @@ if active_page == "Мониторинг":
         "Ближайшая граница", "До ближайшей, %", "Положение, %",
         "LOW", "HIGH", "До LOW, %", "До HIGH, %", "Special",
     ]]
+    if not monitor_detailed:
+        table = table[[
+            "Статус", "БА", "Контракт", "Цена",
+            "Источник цены", "Ближайшая граница",
+            "До ближайшей, %", "Положение, %",
+        ]]
 
     event = st.dataframe(
         table, width="stretch", hide_index=True,
