@@ -1839,15 +1839,15 @@ if active_page == "Мониторинг":
         "LOW", "HIGH", "До LOW, %", "До HIGH, %", "Special",
         "Торговая дата ISS", "Время записи ISS",
     ]]
-    if monitor_detailed:
-        st.caption("TRADEDATE — дата торговых данных ISS, SYSTIME — время серверной записи ISS. "
-                   "Ни то ни другое не гарантирует дату последней сделки.")
-    else:
+    if not monitor_detailed:
         table = table[[
             "Статус", "БА", "Контракт", "Цена",
             "Источник цены", "Ближайшая граница",
             "До ближайшей, %", "Положение, %",
         ]]
+    else:
+        st.caption("TRADEDATE — дата торговых данных ISS, SYSTIME — время серверной записи ISS. "
+                   "Ни то ни другое не гарантирует дату последней сделки.")
 
     event = st.dataframe(
         table, width="stretch", hide_index=True,
