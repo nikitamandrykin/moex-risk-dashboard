@@ -212,6 +212,7 @@ def build_market_monitor(
                 "special_mode": special_mode,
                 "special_group": special_group,
                 "price_source": chosen_ref.field if chosen_ref else "",
+                "tradedate": chosen.get("tradedate"),
                 "systime": chosen.get("systime"),
             }
         )
