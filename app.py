@@ -1548,9 +1548,19 @@ if source_snapshot_count:
     source_meta_parts.append(f"{source_snapshot_count} из снимка/кеша")
 source_meta = " · ".join(source_meta_parts)
 st.markdown(dashboard_styles(), unsafe_allow_html=True)
-st.markdown(source_health_html(source_statuses, source_fetched_at, time()), unsafe_allow_html=True)
+st.caption(
+    f"Источники · {source_live_count}/{len(source_statuses)} ответили через API · "
+    f"{source_snapshot_count} сохранённых/ручных наборов · "
+    f"снимок получен {fetched_at_label(source_fetched_at)}. "
+    "Ответ API не гарантирует свежесть сделки."
+)
+if source_error:
+    st.error("Некоторые наборы данных недоступны. Откройте «Состояние источников» для проверки.")
+elif source_snapshot_count:
+    st.warning("Часть показателей получена из кеша или резервных файлов. Проверьте даты источников.")
 
 with st.expander("Состояние источников, обновление и диагностика", expanded=False):
+    st.markdown(source_health_html(source_statuses, source_fetched_at, time()), unsafe_allow_html=True)
     st.caption(f"ISS: {contracts_status.updated_at or '—'} · MR/LK: {market_status.updated_at or '—'}")
     st.button("Обновить данные", icon="🔄", on_click=refresh_data)
     st.markdown(
