@@ -9,7 +9,7 @@ import pandas as pd
 
 from .contracts import contracts_for_asset, reference_price
 from .boundaries import is_currency_future
-from .loaders import latest_row
+from .loaders import latest_row, _assetcode_key
 from .special_params import active_special_parameters
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
@@ -94,10 +94,28 @@ def build_market_monitor(
         asof_date = asof_date.tz_convert(MOSCOW_TZ).tz_localize(None)
     asof_date = asof_date.normalize()
     codes = sorted({str(x).strip() for x in contracts_df["assetcode"].dropna() if str(x).strip()})
+
+    # Group once instead of scanning the full contract and risk-rate tables for
+    # every underlying. Keep contracts_for_asset/latest_row for exact priority.
+    contract_keys = contracts_df["assetcode"].astype(str).str.upper()
+    contracts_by_code = {
+        str(key): group
+        for key, group in contracts_df.groupby(contract_keys, sort=False)
+    }
+    market_by_code = {}
+    if market_df is not None and not market_df.empty and "assetcode" in market_df.columns:
+        market_keys = market_df["assetcode"].map(_assetcode_key)
+        market_by_code = {
+            str(key): group
+            for key, group in market_df.groupby(market_keys, sort=False)
+        }
     rows: list[dict[str, object]] = []
 
     for code in codes:
-        candidates = contracts_for_asset(contracts_df, code, today=asof_date)
+        code_contracts = contracts_by_code.get(code.upper())
+        if code_contracts is None:
+            continue
+        candidates = contracts_for_asset(code_contracts, code, today=asof_date)
         if "lasttradedate" in candidates.columns:
             # contracts_for_asset falls back to expired series if no active ones
             # exist; Risk Radar must never present them as active.
@@ -161,7 +179,8 @@ def build_market_monitor(
         if price is not None and low is not None and high is not None and high > low:
             position_pct = max(0.0, min(100.0, (price - low) / (high - low) * 100.0))
 
-        market_row = latest_row(market_df, code)
+        matching_market = market_by_code.get(_assetcode_key(code))
+        market_row = latest_row(matching_market, code) if matching_market is not None else None
         title = ""
         if market_row is not None:
             value = market_row.get("title")
