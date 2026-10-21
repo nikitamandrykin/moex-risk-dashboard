@@ -53,7 +53,7 @@ from services.boundaries import (
 )
 from services.monitor import build_market_monitor, monitor_groups
 from services.monitor_cache import cached_market_monitor, monitor_clock
-from services.dashboard_ui import dashboard_styles, source_health_html, selection_key, asset_labels_for_codes
+from services.dashboard_ui import dashboard_styles, source_health_html, selection_key, asset_labels_for_codes, monitor_corridor_html
 from services.history import history_change_summary, history_for_contract, load_risk_history
 from services.collateral import load_collateral_sources, lookup_collateral
 from services.special_params import (
@@ -1883,10 +1883,7 @@ if active_page == "Мониторинг":
             live_distance = _as_float(selected.get("nearest_pct"))
             live_side = str(selected.get("nearest_side") or "—")
             selected_source = price_source_labels.get(str(selected.get("price_source") or ""), "—")
-            st.markdown(
-                f"**Выбрано:** `{html.escape(str(selected['assetcode']))}` · `{html.escape(str(selected['secid']))}` · "
-                f"{html.escape(str(selected['Статус']))} · цена из **{html.escape(selected_source)}**"
-            )
+            st.markdown(monitor_corridor_html(selected), unsafe_allow_html=True)
             st.button(
                 f"Открыть {selected['assetcode']} · {selected['secid']} в карточке контракта →",
                 type="primary", width="stretch",
