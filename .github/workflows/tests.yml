@@ -25,5 +25,10 @@ jobs:
         run: python tests_history.py
       - name: UI structure tests
         run: python tests_ui_structure.py
-      - name: Compile public entrypoint
+      - name: Source freshness tests
+        run: python tests_data_freshness.py
+      - name: Dashboard cache and public UI regressions
+        run: python tests_dashboard_v2.py && python tests_dashboard_app.py
+      - name: Compile Python files
         run: python -m py_compile streamlit_app.py app.py services/*.py scripts/*.py
+

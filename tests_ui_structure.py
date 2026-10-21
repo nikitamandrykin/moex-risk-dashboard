@@ -19,5 +19,9 @@ assert '"CRITICAL / вне границ"' in monitor
 assert '"Равноудалены"' in monitor
 assert '"Источник цены"' in monitor
 assert 'st.altair_chart' in monitor
+assert 'monitor_search = st.text_input(' in monitor
+assert 'monitor_detailed = st.toggle(' in monitor
+assert '"Положение, %"' in monitor
+assert 'if not monitor_detailed:' in monitor
 assert 'Последняя точка графика дополняется текущим live-состоянием' in monitor
 print("UI structure: polished Risk Radar plus live-aware boundary history")
