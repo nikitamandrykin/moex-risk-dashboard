@@ -8,7 +8,7 @@ from pandas.testing import assert_frame_equal
 
 from services.monitor import build_market_monitor
 from services.monitor_cache import cached_market_monitor, monitor_clock
-from services.dashboard_ui import source_health_html, selection_key, asset_labels_for_codes
+from services.dashboard_ui import source_health_html, selection_key, asset_labels_for_codes, monitor_corridor_html
 from services.loaders import SourceStatus
 
 now = datetime(2026, 10, 21, 12, 0, 20, tzinfo=ZoneInfo('Europe/Moscow'))
@@ -80,6 +80,29 @@ live_special = pd.DataFrame([
 flagged = build_market_monitor(contracts.iloc[:5], empty, live_special, check_at=now)
 assert flagged.loc[flagged["assetcode"].eq("A2"), "special_mode"].iloc[0] == True
 assert flagged.loc[flagged["assetcode"].eq("A3"), "special_mode"].iloc[0] == False
+
+
+# Risk Radar drill-down: inside / outside limits, missing data and HTML escaping.
+inside = dict(assetcode="RTS", secid="RIZ6", risk_status="WATCH",
+              lowlimit=80., price=99., highlimit=100., nearest_pct=1.010101,
+              price_source="last", tradedate=pd.Timestamp("2026-10-21"))
+card = monitor_corridor_html(inside)
+assert "RIZ6" in card and "WATCH" in card and "Цена ISS" in card
+assert 'left:95.00%' in card and "1,01% до ближайшей границы" in card
+assert "21.10.2026" in card and "время последней сделки" in card
+assert "Внутри ценового коридора" in card
+outside = {**inside, "price": 110., "risk_status": "OUTSIDE HIGH"}
+assert "Выше HIGH" in monitor_corridor_html(outside)
+assert 'left:100.00%' in monitor_corridor_html(outside)
+unavailable = {**inside, "price": float("nan"), "risk_status": "NORMAL"}
+assert "Недостаточно данных" in monitor_corridor_html(unavailable)
+assert "Нет данных" in monitor_corridor_html(unavailable)
+assert "monitor-corridor-marker" not in monitor_corridor_html(unavailable)
+malicious = {**inside, "assetcode": "<script>boom</script>",
+             "secid": '<img src=x onerror="boom">'}
+markup = monitor_corridor_html(malicious)
+assert "<script>" not in markup and "<img" not in markup
+assert "&lt;script&gt;" in markup and "&lt;img" in markup
 
 
 print('Dashboard cache, calendar boundaries, missing-data and selection regressions OK')
