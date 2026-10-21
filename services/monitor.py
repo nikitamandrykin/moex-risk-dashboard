@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
@@ -56,7 +57,7 @@ def _number(value: object) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    if pd.isna(number):
+    if not math.isfinite(number):
         return None
     return number
 
@@ -143,7 +144,9 @@ def build_market_monitor(
         elif high_distance is not None:
             nearest_side, nearest_pct = "HIGH", high_distance
 
-        if price is not None and low is not None and price < low:
+        if price is None or low is None or high is None or high <= low:
+            risk_status = "NO DATA"
+        elif price < low:
             risk_status = "OUTSIDE LOW"
         elif price is not None and high is not None and price > high:
             risk_status = "OUTSIDE HIGH"
@@ -210,3 +213,4 @@ def monitor_groups(frame: pd.DataFrame) -> list[str]:
     preferred = ["Валюта", "Ставки", "Индексы", "Акции", "Товары", "Металлы", "Прочие"]
     available = {str(x) for x in frame["group"].dropna()}
     return [item for item in preferred if item in available]
+

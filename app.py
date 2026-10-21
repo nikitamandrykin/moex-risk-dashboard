@@ -52,6 +52,8 @@ from services.boundaries import (
     is_morning_session,
 )
 from services.monitor import build_market_monitor, monitor_groups
+from services.monitor_cache import cached_market_monitor, monitor_clock
+from services.dashboard_ui import dashboard_styles, source_health_html, selection_key
 from services.history import history_change_summary, history_for_contract, load_risk_history
 from services.collateral import load_collateral_sources, lookup_collateral
 from services.special_params import (
@@ -1545,72 +1547,51 @@ source_meta_parts = [
 if source_snapshot_count:
     source_meta_parts.append(f"{source_snapshot_count} из снимка/кеша")
 source_meta = " · ".join(source_meta_parts)
-if PUBLIC_DEPLOYMENT:
-    st.caption(
-        f"Снимок получен сервером: {fetched_at_label(source_fetched_at)} · "
-        f"Контракты ISS (отметка времени данных): {contracts_status.updated_at or '—'} · "
-        f"MR/LK (отметка данных): {market_status.updated_at or '—'} · "
-        f"Источников live: {source_live_count}/{len(source_statuses)}. "
-        "Время получения и время последней сделки могут отличаться."
-    )
-    unavailable = [s.name for s in source_statuses if s.state != "live"]
-    if unavailable:
-        st.warning(
-            "Не все источники доступны в live-режиме: "
-            + ", ".join(unavailable)
-            + ". Для отдельных показателей используются сохранённые данные "
-              "или источник недоступен — проверяйте дату набора."
-        )
-if not presentation_mode:
+st.markdown(dashboard_styles(), unsafe_allow_html=True)
+st.markdown(source_health_html(source_statuses, source_fetched_at, time()), unsafe_allow_html=True)
+
+with st.expander("Состояние источников, обновление и диагностика", expanded=False):
+    st.caption(f"ISS: {contracts_status.updated_at or '—'} · MR/LK: {market_status.updated_at or '—'}")
+    st.button("Обновить данные", icon="🔄", on_click=refresh_data)
     st.markdown(
-        f'<div class="summary-strip"><div class="summary-left"><span class="summary-dot {source_dot}"></span>'
-        f'<span class="summary-title">{html.escape(source_label)}</span><span class="summary-meta">{html.escape(source_meta)}</span></div>'
-        '<span class="summary-meta">подробности ниже</span></div>',
+        '<div class="status-row">'
+        + status_chip(market_status)
+        + status_chip(static_status)
+        + status_chip(offdays_status)
+        + status_chip(extra_status)
+        + status_chip(contracts_status)
+        + status_chip(special_calendar_status)
+        + "</div>",
         unsafe_allow_html=True,
     )
-
-    with st.expander("Состояние источников, обновление и диагностика", expanded=False):
-        st.button("Обновить данные", icon="🔄", on_click=refresh_data)
-        st.markdown(
-            '<div class="status-row">'
-            + status_chip(market_status)
-            + status_chip(static_status)
-            + status_chip(offdays_status)
-            + status_chip(extra_status)
-            + status_chip(contracts_status)
-            + status_chip(special_calendar_status)
-            + "</div>",
-            unsafe_allow_html=True,
-        )
-        source_state_labels = {
-            "live": "Актуальный API/URL",
-            "upload": "Ручная загрузка",
-            "cache": "Последний успешный снимок",
-            "fallback": "Встроенный fallback",
-            "manual": "Сохранённый ручной файл",
-            "missing": "Нет источника",
-            "error": "Ошибка",
-        }
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Набор данных": status.name,
-                        "Статус": source_state_labels.get(status.state, status.state),
-                        "Последнее обновление / снимок": status.updated_at or "—",
-                        "Источник / причина": status.detail,
-                    }
-                    for status in source_statuses
-                ]
-            ),
-            width="stretch",
-            hide_index=True,
-        )
-        st.caption(
-            "Новый ответ заменяет last-good кеш только после успешного разбора и проверки обязательных колонок. "
-            "Пустой ответ, HTTP-ошибка или невалидный ручной файл не затирают подтверждённый снимок."
-        )
-
+    source_state_labels = {
+        "live": "Получен ответ API/URL",
+        "upload": "Ручная загрузка",
+        "cache": "Последний успешный снимок",
+        "fallback": "Встроенный fallback",
+        "manual": "Сохранённый ручной файл",
+        "missing": "Нет источника",
+        "error": "Ошибка",
+    }
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "Набор данных": status.name,
+                    "Статус": source_state_labels.get(status.state, status.state),
+                    "Последнее обновление / снимок": status.updated_at or "—",
+                    "Источник / причина": status.detail,
+                }
+                for status in source_statuses
+            ]
+        ),
+        width="stretch",
+        hide_index=True,
+    )
+    st.caption(
+        "Новый ответ заменяет last-good кеш только после успешного разбора и проверки обязательных колонок. "
+        "Пустой ответ, HTTP-ошибка или невалидный ручной файл не затирают подтверждённый снимок."
+    )
 
 NAV_PAGES = ["Мониторинг", "Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]
 if st.session_state.get("active_page") not in NAV_PAGES:
@@ -1687,9 +1668,9 @@ if active_page == "Мониторинг":
         )
         st.caption(f"CRITICAL ≤ {MONITOR_CRITICAL_THRESHOLD:.2f}% · WATCH ≤ {attention_threshold:.2f}%")
 
-    monitor_df = build_market_monitor(
+    monitor_df = cached_market_monitor(
         contracts_df, market_df, special_calendar_df,
-        check_at=datetime.now(ZoneInfo("Europe/Moscow")),
+        check_at=monitor_clock(special_calendar_df, datetime.now(ZoneInfo("Europe/Moscow"))),
         attention_threshold_pct=attention_threshold,
         critical_threshold_pct=MONITOR_CRITICAL_THRESHOLD,
     )
@@ -1701,7 +1682,7 @@ if active_page == "Мониторинг":
             "Показывать",
             [
                 "Все", "Требуют внимания", "CRITICAL / вне границ", "WATCH",
-                "Ближе к HIGH", "Ближе к LOW", "Равноудалены", "Спецрежим НКЦ",
+                "Ближе к HIGH", "Ближе к LOW", "Равноудалены", "Спецрежим НКЦ", "Нет данных",
             ],
             key="monitor_filter",
         )
@@ -1737,6 +1718,8 @@ if active_page == "Мониторинг":
         filtered_monitor = filtered_monitor[filtered_monitor["risk_status"].isin(attention_states)]
     elif selected_monitor_filter == "CRITICAL / вне границ":
         filtered_monitor = filtered_monitor[filtered_monitor["risk_status"].isin(critical_states)]
+    elif selected_monitor_filter == "Нет данных":
+        filtered_monitor = filtered_monitor[filtered_monitor["risk_status"] == "NO DATA"]
     elif selected_monitor_filter == "WATCH":
         filtered_monitor = filtered_monitor[filtered_monitor["risk_status"] == "WATCH"]
     elif selected_monitor_filter == "Ближе к HIGH":
@@ -1818,10 +1801,17 @@ if active_page == "Мониторинг":
         )
         filtered_monitor = filtered_monitor[matched]
 
+    st.caption(f"Показано {len(filtered_monitor)} из {len(monitor_scope)} инструментов · выберите строку для истории и карточки")
+    if filtered_monitor.empty:
+        st.info("По выбранным фильтрам ничего не найдено. Измените поиск или условия отбора.")
+    missing_count = int((monitor_scope["risk_status"] == "NO DATA").sum())
+    if missing_count:
+        st.warning(f"Для {missing_count} инструментов недостаточно данных для оценки риска.")
     display = filtered_monitor.reset_index(drop=True).copy()
     status_icons = {
         "OUTSIDE LOW": "🔴 OUTSIDE LOW", "OUTSIDE HIGH": "🔴 OUTSIDE HIGH",
         "CRITICAL": "🔴 CRITICAL", "WATCH": "🟠 WATCH", "NORMAL": "🟢 NORMAL",
+        "NO DATA": "⚪ Нет данных",
     }
     display["Статус"] = display["risk_status"].map(status_icons).fillna(display["risk_status"])
     display["Ближайшая граница"] = display["nearest_side"].map(
@@ -1859,7 +1849,7 @@ if active_page == "Мониторинг":
     event = st.dataframe(
         table, width="stretch", hide_index=True,
         height=min(650, 86 + 35 * max(1, len(table))),
-        on_select="rerun", selection_mode="single-row", key="market_monitor_table",
+        on_select="rerun", selection_mode="single-row", key=selection_key(display, source_fetched_at, attention_threshold),
         column_config={
             "Цена": st.column_config.NumberColumn(format="%.4f"),
             "LOW": st.column_config.NumberColumn(format="%.4f"),
@@ -3209,4 +3199,5 @@ if active_page == "Методика":
             "Из общего лимита вычитается число сдвигов, уже использованных в основной сессии; "
             "результат дополнительно ограничивается AutoShiftNumMREvg."
         )
+
 
