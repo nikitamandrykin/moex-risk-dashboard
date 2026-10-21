@@ -109,6 +109,13 @@ def build_market_monitor(
             str(key): group
             for key, group in market_df.groupby(market_keys, sort=False)
         }
+    special_by_code = {}
+    if special_calendar_df is not None and not special_calendar_df.empty and "assetcode" in special_calendar_df.columns:
+        special_keys = special_calendar_df["assetcode"].astype(str).str.upper()
+        special_by_code = {
+            str(key): group
+            for key, group in special_calendar_df.groupby(special_keys, sort=False)
+        }
     rows: list[dict[str, object]] = []
 
     for code in codes:
@@ -187,7 +194,12 @@ def build_market_monitor(
             if value is not None and not pd.isna(value):
                 title = str(value).strip()
         contract_name = str(chosen.get("shortname") or chosen.get("secname") or "").strip()
-        special_rows = active_special_parameters(special_calendar_df, code, check_at)
+        matching_special = special_by_code.get(code.upper())
+        special_rows = (
+            active_special_parameters(matching_special, code, check_at)
+            if matching_special is not None
+            else special_calendar_df.iloc[0:0]
+        )
         special_mode = not special_rows.empty
         special_group = ""
         if special_mode:
