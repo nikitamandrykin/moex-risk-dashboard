@@ -66,4 +66,20 @@ labels = asset_labels_for_codes(["RTS", "SBER", "UNKNOWN"], market_titles)
 assert labels == {"RTS": "RTS — Индекс РТС", "SBER": "SBER — Акции Сбера", "UNKNOWN": "UNKNOWN"}
 assert "tradedate" in baseline.columns
 
+# Grouping a non-empty NCC calendar preserves its per-asset active flags.
+live_special = pd.DataFrame([
+    {"assetcode": "A2", "parameter": "RangeFut",
+     "start_at": pd.Timestamp("2026-10-21 11:00:00"),
+     "end_at": pd.Timestamp("2026-10-21 13:00:00"),
+     "market_group": "test"},
+    {"assetcode": "A3", "parameter": "RangeFut",
+     "start_at": pd.Timestamp("2026-10-22 11:00:00"),
+     "end_at": pd.Timestamp("2026-10-22 13:00:00"),
+     "market_group": "test"},
+])
+flagged = build_market_monitor(contracts.iloc[:5], empty, live_special, check_at=now)
+assert flagged.loc[flagged["assetcode"].eq("A2"), "special_mode"].iloc[0] == True
+assert flagged.loc[flagged["assetcode"].eq("A3"), "special_mode"].iloc[0] == False
+
+
 print('Dashboard cache, calendar boundaries, missing-data and selection regressions OK')
