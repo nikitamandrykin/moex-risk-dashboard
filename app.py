@@ -53,7 +53,7 @@ from services.boundaries import (
 )
 from services.monitor import build_market_monitor, monitor_groups
 from services.monitor_cache import cached_market_monitor, monitor_clock
-from services.dashboard_ui import dashboard_styles, source_health_html, selection_key
+from services.dashboard_ui import dashboard_styles, source_health_html, selection_key, asset_labels_for_codes
 from services.history import history_change_summary, history_for_contract, load_risk_history
 from services.collateral import load_collateral_sources, lookup_collateral
 from services.special_params import (
@@ -1636,14 +1636,7 @@ def persist_widget_value(widget_key: str, state_key: str) -> None:
 
 # В списке показываем не только технический код, но и название базисного актива
 # из официальной выгрузки MR/LK. Это особенно важно для похожих кодов T и TCSI.
-asset_labels: dict[str, str] = {}
-for code in assetcodes:
-    row = latest_row(market_df, code)
-    title = None if row is None else row.get("title")
-    if title is not None and not pd.isna(title) and str(title).strip():
-        asset_labels[code] = f"{code} — {str(title).strip()}"
-    else:
-        asset_labels[code] = code
+asset_labels = asset_labels_for_codes(assetcodes, market_df)
 
 if active_page == "Мониторинг":
     MONITOR_CRITICAL_THRESHOLD = 0.75
@@ -1824,6 +1817,12 @@ if active_page == "Мониторинг":
         "prevsettleprice": "PREV SETTLE",
     }
     display["Источник цены"] = display["price_source"].map(price_source_labels).fillna("—")
+    display["Торговая дата ISS"] = pd.to_datetime(
+        display["tradedate"], errors="coerce"
+    ).dt.strftime("%d.%m.%Y").fillna("—")
+    display["Время записи ISS"] = pd.to_datetime(
+        display["systime"], errors="coerce"
+    ).dt.strftime("%d.%m.%Y %H:%M").fillna("—")
     display["Special"] = display.apply(
         lambda row: ("SPECIAL" + (f" · {row['special_group']}" if row.get("special_group") else "")) if row.get("special_mode") else "—",
         axis=1,
@@ -1838,8 +1837,12 @@ if active_page == "Мониторинг":
         "Статус", "БА", "Группа", "Контракт", "Цена", "Источник цены",
         "Ближайшая граница", "До ближайшей, %", "Положение, %",
         "LOW", "HIGH", "До LOW, %", "До HIGH, %", "Special",
+        "Торговая дата ISS", "Время записи ISS",
     ]]
-    if not monitor_detailed:
+    if monitor_detailed:
+        st.caption("TRADEDATE — дата торговых данных ISS, SYSTIME — время серверной записи ISS. "
+                   "Ни то ни другое не гарантирует дату последней сделки.")
+    else:
         table = table[[
             "Статус", "БА", "Контракт", "Цена",
             "Источник цены", "Ближайшая граница",
