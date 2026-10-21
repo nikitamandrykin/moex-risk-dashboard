@@ -3,7 +3,34 @@ import hashlib
 import html
 import json
 
+import pandas as pd
+
+from .loaders import _assetcode_key, latest_row
 from .data_freshness import fetched_at_label, snapshot_expired
+
+
+def asset_labels_for_codes(assetcodes, market_df):
+    """Build human-readable underlying labels with one market table grouping.
+
+    Preserve the original latest_row sort/selection semantics while avoiding
+    a full scan of risk-rate rows for every underlying on each Streamlit rerun.
+    """
+    grouped = {}
+    if market_df is not None and not market_df.empty and "assetcode" in market_df.columns:
+        keys = market_df["assetcode"].map(_assetcode_key)
+        grouped = {
+            str(key): frame for key, frame in market_df.groupby(keys, sort=False)
+        }
+    labels = {}
+    for code in assetcodes:
+        matching = grouped.get(_assetcode_key(code))
+        row = latest_row(matching, code) if matching is not None else None
+        title = None if row is None else row.get("title")
+        if title is not None and not pd.isna(title) and str(title).strip():
+            labels[code] = f"{code} — {str(title).strip()}"
+        else:
+            labels[code] = code
+    return labels
 
 
 def selection_key(frame, fetched_at, threshold):
