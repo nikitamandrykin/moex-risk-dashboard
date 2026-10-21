@@ -8,7 +8,7 @@ from pandas.testing import assert_frame_equal
 
 from services.monitor import build_market_monitor
 from services.monitor_cache import cached_market_monitor, monitor_clock
-from services.dashboard_ui import source_health_html, selection_key
+from services.dashboard_ui import source_health_html, selection_key, asset_labels_for_codes
 from services.loaders import SourceStatus
 
 now = datetime(2026, 10, 21, 12, 0, 20, tzinfo=ZoneInfo('Europe/Moscow'))
@@ -54,4 +54,16 @@ markup = source_health_html([SourceStatus('<script>', 'fallback', '', '<date>')]
 assert '<script>' not in markup and '&lt;script&gt;' in markup
 assert 'Резервный набор' in markup
 assert 'требует обновления' in source_health_html([], 1000, 1400)
+
+# Underlying labels agree with the established latest_row ordering, while the
+# implementation indexes market-rate rows just once.
+market_titles = pd.DataFrame([
+    {"assetcode": "RTS", "title": "Старое название", "updatetime": pd.Timestamp("2026-10-20")},
+    {"assetcode": " RTS ", "title": "Индекс РТС", "updatetime": pd.Timestamp("2026-10-21")},
+    {"assetcode": "SBER", "title": "Акции Сбера", "updatetime": pd.Timestamp("2026-10-21")},
+])
+labels = asset_labels_for_codes(["RTS", "SBER", "UNKNOWN"], market_titles)
+assert labels == {"RTS": "RTS — Индекс РТС", "SBER": "SBER — Акции Сбера", "UNKNOWN": "UNKNOWN"}
+assert "tradedate" in baseline.columns
+
 print('Dashboard cache, calendar boundaries, missing-data and selection regressions OK')
