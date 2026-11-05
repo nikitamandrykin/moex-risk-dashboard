@@ -16,13 +16,16 @@ def show(title, frame):
         else:print("  "+code+" MISSING",flush=True)
 
 def main():
+    iss_df = None
+    evening_df = None
     url="https://iss.moex.com/iss/rms/engines/futures/objects/staticparams.json?iss.meta=off&iss.only=staticparams"
     try:
         raw=fetch_url(url,timeout=15,attempts=1,accept="application/json")
         parsed=json.loads(raw)
         print("ISS JSON BLOCKS",list(parsed))
         print("ISS RAW COLUMNS",parsed.get("staticparams",{}).get("columns",[]))
-        show("ISS staticparams",read_moex_iss_json(raw,block_name="staticparams"))
+        iss_df = read_moex_iss_json(raw,block_name="staticparams")
+        show("ISS staticparams", iss_df)
     except Exception as e:print("ISS ERROR",repr(e),flush=True)
     try:
         html=fetch_url(CATALOG_URL,timeout=15,attempts=1,accept="text/html,*/*").decode("utf-8",errors="replace")
@@ -34,7 +37,8 @@ def main():
             try:
                 blob=fetch_url(url,timeout=20,attempts=1,referer=CATALOG_URL)
                 print("XLSX SIZE",len(blob),flush=True)
-                show("CURRENT OFFICIAL XLSX",read_ncc_xlsx(blob))
+                evening_df = read_ncc_xlsx(blob)
+                show("CURRENT OFFICIAL XLSX", evening_df)
             except Exception as e:print("XLSX ERROR",repr(e),flush=True)
     except Exception as e:print("CATALOG ERROR",repr(e),flush=True)
     try:
@@ -57,4 +61,11 @@ def main():
             for m in matches[:10]:
                 print("JS EXCERPT",keyword, repr(js[max(0,m.start()-150):m.end()+200])[:450],flush=True)
     except Exception as e:print("LIVE NCC SCRIPT ERROR",repr(e),flush=True)
+    if iss_df is not None and evening_df is not None:
+        ncc = set(evening_df["assetcode"].astype(str).str.strip().str.upper())
+        moex = set(iss_df["assetcode"].astype(str).str.strip().str.upper())
+        missing = sorted(moex - ncc)
+        print("MISSING CURRENT-ISS UNDERLYINGS IN PUBLISHED EVENING XLSX",len(missing),":",", ".join(missing),flush=True)
+        for code in missing:
+            print("MISSING OFFICIAL EVENING FIELDS",code,"AutoShiftNumMREvg=?","FutMonTimeEvg=?",flush=True)
 if __name__=="__main__":main()
