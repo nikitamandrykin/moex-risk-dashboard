@@ -25,6 +25,6 @@ with patch('requests.get', side_effect=AssertionError('Unexpected network reques
     assert not app.exception, app.exception
     assert any('ничего не найдено' in item.value for item in app.info)
     for page in ['Обзор', 'Границы', 'Калькулятор ГО', 'Спецрежимы НКЦ', 'Методика', 'Мониторинг']:
-        app.radio(key='active_page').set_value(page).run()
+        app.segmented_control(key='active_page').set_value(page).run()
         assert not app.exception, (page, app.exception)
 print('Offline public UI: search, empty results and all six pages OK')
