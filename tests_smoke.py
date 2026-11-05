@@ -115,6 +115,31 @@ contracts_df = read_forts_payload(sample_iss)
 assert len(contracts_df) == 1
 rts_contracts = contracts_for_asset(contracts_df, "RTS", today=pd.Timestamp("2026-07-31"))
 assert len(rts_contracts) == 1
+
+# A source may contain only historical futures. They must not be silently
+# resurrected as a valid active series (even when cached or no new series exist).
+historical_only = pd.DataFrame([
+    {"assetcode": "AI92", "secid": "AI92U6",
+     "lasttradedate": pd.Timestamp("2026-09-15"), "last": 123.0},
+])
+assert contracts_for_asset(
+    historical_only, "AI92", today=pd.Timestamp("2026-11-05")
+).empty
+mixed_expiry = pd.concat([
+    historical_only,
+    pd.DataFrame([
+        {"assetcode": "AI92", "secid": "AI92Z6",
+         "lasttradedate": pd.Timestamp("2026-12-15"), "last": 125.0},
+    ]),
+], ignore_index=True)
+active_only = contracts_for_asset(mixed_expiry, "AI92", today=pd.Timestamp("2026-11-05"))
+assert active_only["secid"].tolist() == ["AI92Z6"]
+assert contracts_for_asset(
+    mixed_expiry, "AI92", today=pd.Timestamp("2027-01-01")
+).empty
+assert contracts_for_asset(
+    mixed_expiry, "1MFR", today=pd.Timestamp("2026-11-05")
+).empty
 contract = rts_contracts.iloc[0]
 price_ref = reference_price(contract)
 assert price_ref.field == "last" and price_ref.value == 88780
@@ -205,6 +230,48 @@ missing_second_level = progressive_position_margin(101, 100, 10_000, None, 0.10,
 assert missing_second_level.total_margin_rub is None
 assert missing_second_level.error is not None
 print("Progressive GO tests OK: 100×MR1, 150×MR2, 70×MR3 =", fmt_compact_rub(progressive.total_margin_rub))
+
+# Exact concentration threshold checks (base margin 100 per contract,
+# MR2/MR1=1.6, MR3/MR1=2.5). The increment must be charged marginally.
+def check_margin(n, expected, level):
+    result = progressive_position_margin(n, 10, 1000, 2500, .10, .16, .25, 100)
+    assert result.error is None and result.highest_level == level
+    assert abs(result.total_margin_rub - expected) < 1e-8, (n, result)
+
+check_margin(0, 0, 0)
+check_margin(100, 10_000, 1)  # LK1 exactly
+check_margin(101, 10_160, 2)  # One contract beyond LK1
+check_margin(250, 34_000, 2)  # LK2 exactly
+check_margin(251, 34_250, 3)  # One contract beyond LK2
+
+# Thresholds in BA units can split an individual 3-unit contract.
+fractional = progressive_position_margin(4, 3, 10, 20, .1, .2, .3, 300)
+assert fractional.error is None
+assert abs(fractional.level1_contracts - 10/3) < 1e-9
+assert abs(fractional.level2_contracts - 2/3) < 1e-9
+assert abs(fractional.total_margin_rub - 1400) < 1e-9
+print("GO boundary tests OK: LK1, LK1+1, LK2, LK2+1, fractional lot")
+
+# Non-finite floats must never be displayed as plausible prices, margins or
+# monetary equivalents. A real fallback may still be used if one exists.
+assert reference_price(pd.Series({"last": float("inf"), "settleprice": 101})).field == "settleprice"
+assert reference_price(pd.Series({"last": float("nan"), "settleprice": float("inf")})).value is None
+assert morning_reference_price(pd.Series({
+    "prevsettleprice": float("inf"), "lastsettleprice": 98.0,
+})).field == "lastsettleprice"
+assert price_to_rub(100, 0, 5) is None
+assert price_to_rub(100, -1, 5) is None
+assert price_to_rub(float("inf"), 1, 5) is None
+assert price_to_rub(100, 1, float("inf")) is None
+assert concentration_limit_to_rub(float("inf"), 10, 100) is None
+assert concentration_limit_to_rub(100, 10, float("inf")) is None
+assert progressive_position_margin(float("inf"), 100, 1000, 2000, .1, .2, .3, 100).error is not None
+assert progressive_position_margin(10, 100, 1000, 2000, float("inf"), .2, .3, 100).error is not None
+assert progressive_position_margin(15, 100, 1000, 2000, .1, float("inf"), .3, 100).error is not None
+assert simple_position_margin_before_lk1(float("inf"), 1, 100, 50) == (None, None, None)
+assert weekend_limits_from_price(100, float("inf")) == (None, None)
+assert weekend_limits_from_price(100, -.03) == (None, None)
+print("Finite-value guard tests OK")
 
 
 from datetime import datetime
@@ -358,7 +425,7 @@ assert "methodology-table-wrap" in app_text
 assert "HIGHLIMIT_RUB" in app_text
 assert "Калькулятор ГО по уровням концентрации" in app_text
 assert "GO_{position}=N_1IM_1+N_2IM_2+N_3IM_3" in app_text
-assert "NAV_PAGES = [\"Мониторинг\", \"Обзор\", \"Границы\", \"Калькулятор ГО\", \"Спецрежимы НКЦ\", \"Методика\"]" in app_text
+assert "NAV_PAGES = [\"Обзор\", \"Границы\", \"Калькулятор ГО\", \"Спецрежимы НКЦ\", \"Методика\"]" in app_text
 assert "if active_page == \"Обзор\":" in app_text
 assert "load_all_sources_cached" in app_text and "SOURCE_BUNDLE_KEY" in app_text
 assert "Количество контрактов" in app_text

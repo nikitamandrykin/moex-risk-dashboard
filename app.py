@@ -7,11 +7,18 @@ from zoneinfo import ZoneInfo
 import html
 import math
 import os
+from time import perf_counter, time
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
+from services.data_freshness import (
+    SNAPSHOT_TTL_SECONDS,
+    AUTO_REFRESH_POLL_SECONDS,
+    snapshot_expired,
+    fetched_at_label,
+)
 from services.loaders import (
     SourceStatus,
     latest_row,
@@ -45,6 +52,16 @@ from services.boundaries import (
     is_morning_session,
 )
 from services.monitor import build_market_monitor, monitor_groups
+from services.monitor_cache import cached_market_monitor, monitor_clock
+from services.dashboard_ui import (
+    dashboard_styles,
+    source_health_html,
+    selection_key,
+    asset_labels_for_codes,
+    available_overview_assets,
+    monitor_corridor_html,
+    parameter_reference_html,
+)
 from services.history import history_change_summary, history_for_contract, load_risk_history
 from services.collateral import load_collateral_sources, lookup_collateral
 from services.special_params import (
@@ -866,7 +883,9 @@ def metric_card(
         classes += f" {html.escape(tone)}"
     if compact:
         classes += " compact"
-    code_html = f'<div class="metric-code">{html.escape(code)}</div>' if code else ""
+    # Long internal field names live in Methodology rather than distracting
+    # end users on every metric card.
+    code_html = f'<div class="metric-code">{html.escape(code)}</div>' if code and len(code) <= 12 else ""
     note_html = f'<div class="metric-note">{html.escape(note)}</div>' if note else ""
     st.markdown(
         f"""
@@ -888,7 +907,7 @@ def simple_metric_card(
     code: str = "",
     subvalue: str = "",
 ) -> None:
-    code_html = f'<div class="simple-card-code">{html.escape(code)}</div>' if code else ""
+    code_html = f'<div class="simple-card-code">{html.escape(code)}</div>' if code and len(code) <= 12 else ""
     subvalue_html = (
         f'<div class="simple-card-subvalue">{html.escape(subvalue)}</div>'
         if subvalue else ""
@@ -1251,16 +1270,15 @@ def load_risk_history_cached():
     return load_risk_history()
 
 
-SOURCE_BUNDLE_KEY = "_source_bundle_v096"
+SOURCE_BUNDLE_KEY = "_source_bundle_v097"
 COLLATERAL_BUNDLE_KEY = "_collateral_bundle_v11"
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=SNAPSHOT_TTL_SECONDS, show_spinner=False)
 def load_all_sources_cached():
     """Load independent official sources in parallel.
 
-    Ordinary widget interactions reuse a session snapshot and therefore never
-    trigger network I/O. This cached parallel loader is used on the first run
-    of a browser session and after an explicit refresh.
+    Widget interactions reuse a session snapshot. A periodic heartbeat invalidates
+    it at the shared cache TTL, so an open browser eventually receives new data.
     """
     jobs = {
         "market": lambda: load_dataset(
@@ -1302,9 +1320,24 @@ def load_all_sources_cached():
             manual_path=BASE_DIR / "runtime_cache" / "special_risk_calendar_manual.xlsx",
         ),
     }
+    total_started = perf_counter()
+    def timed_load(name, job):
+        started = perf_counter()
+        try:
+            return job()
+        finally:
+            print(
+                f"[MOEX PERF] source={name} duration_s={perf_counter() - started:.3f}",
+                flush=True,
+            )
+
     with ThreadPoolExecutor(max_workers=len(jobs), thread_name_prefix="moex-source") as pool:
-        futures = {name: pool.submit(job) for name, job in jobs.items()}
+        futures = {name: pool.submit(timed_load, name, job) for name, job in jobs.items()}
         results = {name: future.result() for name, future in futures.items()}
+    print(
+        f"[MOEX PERF] all_sources duration_s={perf_counter() - total_started:.3f}",
+        flush=True,
+    )
     market, market_status = results["market"]
     static, static_status = results["static"]
     evening, evening_status = results["evening"]
@@ -1314,6 +1347,7 @@ def load_all_sources_cached():
     return (
         market, market_status, static, static_status, evening, evening_status,
         offdays, offdays_status, contracts, contracts_status, special, special_status,
+        time(),
     )
 
 if PUBLIC_DEPLOYMENT:
@@ -1421,7 +1455,7 @@ if SOURCE_BUNDLE_KEY not in st.session_state:
 (
     market_df, market_status, static_df, static_status, extra_df, extra_status,
     offdays_df, offdays_status, contracts_df, contracts_status,
-    special_calendar_df, special_calendar_status,
+    special_calendar_df, special_calendar_status, source_fetched_at,
 ) = st.session_state[SOURCE_BUNDLE_KEY]
 
 # Uploaded data has priority over configured/live/fallback sources.
@@ -1479,11 +1513,31 @@ def refresh_data() -> None:
 
 
 if presentation_mode:
-    st.sidebar.button("🔄 Обновить данные", on_click=refresh_data, use_container_width=True)
+    st.sidebar.button("🔄 Обновить данные", on_click=refresh_data, width="stretch")
     if PUBLIC_DEPLOYMENT:
         st.sidebar.caption("Обновляет снимок вашей сессии. Общий сетевой кэш ограничивает частоту запросов к MOEX / НКЦ.")
     else:
         st.sidebar.caption("Обычные клики используют снимок текущей сессии и не запускают сетевые запросы.")
+
+if PUBLIC_DEPLOYMENT:
+    st.sidebar.toggle(
+        "Автообновление (~5 минут)",
+        value=True,
+        key="moex_auto_refresh",
+        help="Проверяет возраст серверного снимка раз в минуту и обновляет "
+             "данные не чаще общего TTL в 5 минут. Это не частота сделок MOEX.",
+    )
+
+    @st.fragment(run_every=AUTO_REFRESH_POLL_SECONDS)
+    def _auto_refresh_sources():
+        if not st.session_state.get("moex_auto_refresh", True):
+            return
+        bundle = st.session_state.get(SOURCE_BUNDLE_KEY)
+        if bundle is not None and snapshot_expired(bundle[-1], time()):
+            st.session_state.pop(SOURCE_BUNDLE_KEY, None)
+            st.rerun()
+
+    _auto_refresh_sources()
 
 source_statuses = [
     market_status, static_status, contracts_status, offdays_status,
@@ -1503,15 +1557,31 @@ source_meta_parts = [
 if source_snapshot_count:
     source_meta_parts.append(f"{source_snapshot_count} из снимка/кеша")
 source_meta = " · ".join(source_meta_parts)
-if not presentation_mode:
-    st.markdown(
-        f'<div class="summary-strip"><div class="summary-left"><span class="summary-dot {source_dot}"></span>'
-        f'<span class="summary-title">{html.escape(source_label)}</span><span class="summary-meta">{html.escape(source_meta)}</span></div>'
-        '<span class="summary-meta">подробности ниже</span></div>',
-        unsafe_allow_html=True,
-    )
+st.markdown(dashboard_styles(), unsafe_allow_html=True)
+source_summary_kind = "source-alert" if source_error else ("source-fallback" if source_snapshot_count else "source-live")
+source_summary_label = (
+    "Есть ошибки источников" if source_error
+    else ("Часть данных резервная" if source_snapshot_count else "Источники отвечают")
+)
+st.markdown(
+    f'<div class="source-summary {source_summary_kind}">'
+    f'<span class="source-summary-status">{html.escape(source_summary_label)}</span>'
+    f'<span class="source-summary-meta">{source_live_count}/{len(source_statuses)} API'
+    f' · {html.escape(fetched_at_label(source_fetched_at))}</span>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+if source_error:
+    st.error("Некоторые наборы данных недоступны. Откройте «Состояние источников» для проверки.")
+elif source_snapshot_count:
+    st.warning("Часть показателей получена из кеша или резервных файлов. Проверьте даты источников.")
 
+# Detailed source diagnostics are available only to the maintainer in private
+# mode; the public dashboard keeps the brief source-state indicator above.
+if not PUBLIC_DEPLOYMENT:
     with st.expander("Состояние источников, обновление и диагностика", expanded=False):
+        st.markdown(source_health_html(source_statuses, source_fetched_at, time()), unsafe_allow_html=True)
+        st.caption(f"ISS: {contracts_status.updated_at or '—'} · MR/LK: {market_status.updated_at or '—'}")
         st.button("Обновить данные", icon="🔄", on_click=refresh_data)
         st.markdown(
             '<div class="status-row">'
@@ -1525,7 +1595,7 @@ if not presentation_mode:
             unsafe_allow_html=True,
         )
         source_state_labels = {
-            "live": "Актуальный API/URL",
+            "live": "Получен ответ API/URL",
             "upload": "Ручная загрузка",
             "cache": "Последний успешный снимок",
             "fallback": "Встроенный fallback",
@@ -1545,7 +1615,7 @@ if not presentation_mode:
                     for status in source_statuses
                 ]
             ),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
         st.caption(
@@ -1553,12 +1623,20 @@ if not presentation_mode:
             "Пустой ответ, HTTP-ошибка или невалидный ручной файл не затирают подтверждённый снимок."
         )
 
-
-NAV_PAGES = ["Мониторинг", "Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]
+# Temporarily keep Risk Radar source available for further development, but do
+# not publish it in the customer-facing navigation until reviewed.
+NAV_PAGES = ["Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]
 if st.session_state.get("active_page") not in NAV_PAGES:
-    st.session_state["active_page"] = "Мониторинг"
-active_page = st.radio(
-    "Раздел", NAV_PAGES, horizontal=True, key="active_page", label_visibility="collapsed"
+    st.session_state["active_page"] = "Обзор"
+active_page = st.segmented_control(
+    "Разделы",
+    NAV_PAGES,
+    key="active_page",
+    selection_mode="single",
+    required=True,
+    width="stretch",
+    wrap=True,
+    label_visibility="collapsed",
 )
 
 security_collateral_df = pd.DataFrame()
@@ -1577,6 +1655,21 @@ assetcodes = union_assetcodes(market_df, static_df, offdays_df, extra_df, contra
 if not assetcodes:
     st.error("Не найден ни один assetcode. Проверьте источники данных или загрузите ручной файл.")
     st.stop()
+
+if active_page == "Обзор":
+    # The static/holiday catalogs may contain dormant underlyings such as
+    # 1MFR that do not appear in today's risk-rate or active-contract ISS feed.
+    # Preserve them for the specialized pages, but not in the public selector.
+    assetcodes = available_overview_assets(
+        assetcodes, market_df, contracts_df,
+        asof=pd.Timestamp.now(tz="Europe/Moscow").tz_localize(None),
+    )
+    if not assetcodes:
+        st.error(
+            "Нет базисных активов с доступными риск-параметрами или действующими контрактами. "
+            "Проверьте официальный источник MOEX ISS."
+        )
+        st.stop()
 
 # Выбор БА хранится отдельно от состояния виджета. Это важно для lazy navigation:
 # на страницах «Границы», «Калькулятор ГО» и т.д. selectbox не рендерится,
@@ -1597,14 +1690,7 @@ def persist_widget_value(widget_key: str, state_key: str) -> None:
 
 # В списке показываем не только технический код, но и название базисного актива
 # из официальной выгрузки MR/LK. Это особенно важно для похожих кодов T и TCSI.
-asset_labels: dict[str, str] = {}
-for code in assetcodes:
-    row = latest_row(market_df, code)
-    title = None if row is None else row.get("title")
-    if title is not None and not pd.isna(title) and str(title).strip():
-        asset_labels[code] = f"{code} — {str(title).strip()}"
-    else:
-        asset_labels[code] = code
+asset_labels = asset_labels_for_codes(assetcodes, market_df)
 
 if active_page == "Мониторинг":
     MONITOR_CRITICAL_THRESHOLD = 0.75
@@ -1629,9 +1715,9 @@ if active_page == "Мониторинг":
         )
         st.caption(f"CRITICAL ≤ {MONITOR_CRITICAL_THRESHOLD:.2f}% · WATCH ≤ {attention_threshold:.2f}%")
 
-    monitor_df = build_market_monitor(
+    monitor_df = cached_market_monitor(
         contracts_df, market_df, special_calendar_df,
-        check_at=datetime.now(ZoneInfo("Europe/Moscow")),
+        check_at=monitor_clock(special_calendar_df, datetime.now(ZoneInfo("Europe/Moscow"))),
         attention_threshold_pct=attention_threshold,
         critical_threshold_pct=MONITOR_CRITICAL_THRESHOLD,
     )
@@ -1643,7 +1729,7 @@ if active_page == "Мониторинг":
             "Показывать",
             [
                 "Все", "Требуют внимания", "CRITICAL / вне границ", "WATCH",
-                "Ближе к HIGH", "Ближе к LOW", "Равноудалены", "Спецрежим НКЦ",
+                "Ближе к HIGH", "Ближе к LOW", "Равноудалены", "Спецрежим НКЦ", "Нет данных",
             ],
             key="monitor_filter",
         )
@@ -1679,6 +1765,8 @@ if active_page == "Мониторинг":
         filtered_monitor = filtered_monitor[filtered_monitor["risk_status"].isin(attention_states)]
     elif selected_monitor_filter == "CRITICAL / вне границ":
         filtered_monitor = filtered_monitor[filtered_monitor["risk_status"].isin(critical_states)]
+    elif selected_monitor_filter == "Нет данных":
+        filtered_monitor = filtered_monitor[filtered_monitor["risk_status"] == "NO DATA"]
     elif selected_monitor_filter == "WATCH":
         filtered_monitor = filtered_monitor[filtered_monitor["risk_status"] == "WATCH"]
     elif selected_monitor_filter == "Ближе к HIGH":
@@ -1730,16 +1818,54 @@ if active_page == "Мониторинг":
     last_count = int((monitor_scope["price_source"] == "last").sum())
     settle_count = int((monitor_scope["price_source"] == "settleprice").sum())
     reserve_count = int(monitor_scope["price_source"].isin({"lastsettleprice", "prevsettleprice"}).sum())
-    st.caption(
-        f"Среди требующих внимания: HIGH — {high_attention} · LOW — {low_attention} · ↔ равноудалены — {center_attention}. "
-        f"Источники цены в текущем фильтре: LAST — {last_count} · SETTLE — {settle_count} · резервные — {reserve_count}. "
-        "↔ равноудалённость не означает низкий риск: при узком коридоре обе границы могут быть близко."
-    )
+    with st.expander("Как читать сигналы и источники цен", expanded=False):
+        st.write(
+            f"Внимание у HIGH: {high_attention} · у LOW: {low_attention} · "
+            f"равноудалены: {center_attention}. "
+            f"Источники цен: LAST — {last_count} · SETTLE — {settle_count} · "
+            f"резервные — {reserve_count}."
+        )
+        st.write(
+            "WATCH и CRITICAL — аналитические пороги близости к границам, "
+            "не параметры НКЦ. Равноудалённость не означает отсутствие риска. "
+            "Данные LAST могут относиться к более ранней сделке."
+        )
 
+    search_col, detail_col = st.columns([3, 1], gap="medium")
+    with search_col:
+        monitor_search = st.text_input(
+            "Поиск инструмента",
+            placeholder="Код БА, название или тикер контракта",
+            key="monitor_search",
+        )
+    with detail_col:
+        monitor_detailed = st.toggle(
+            "Все столбцы",
+            value=False,
+            key="monitor_detailed",
+            help="Включает LOW/HIGH, расстояния до обеих границ и технические поля.",
+        )
+
+    if monitor_search.strip():
+        query = monitor_search.strip()
+        matched = (
+            filtered_monitor["assetcode"].astype("string").str.contains(query, case=False, regex=False, na=False)
+            | filtered_monitor["secid"].astype("string").str.contains(query, case=False, regex=False, na=False)
+            | filtered_monitor["title"].astype("string").str.contains(query, case=False, regex=False, na=False)
+        )
+        filtered_monitor = filtered_monitor[matched]
+
+    st.caption(f"Найдено {len(filtered_monitor)} из {len(monitor_scope)} · выберите контракт в таблице")
+    if filtered_monitor.empty:
+        st.info("По выбранным фильтрам ничего не найдено. Измените поиск или условия отбора.")
+    missing_count = int((monitor_scope["risk_status"] == "NO DATA").sum())
+    if missing_count:
+        st.warning(f"Для {missing_count} инструментов недостаточно данных для оценки риска.")
     display = filtered_monitor.reset_index(drop=True).copy()
     status_icons = {
         "OUTSIDE LOW": "🔴 OUTSIDE LOW", "OUTSIDE HIGH": "🔴 OUTSIDE HIGH",
         "CRITICAL": "🔴 CRITICAL", "WATCH": "🟠 WATCH", "NORMAL": "🟢 NORMAL",
+        "NO DATA": "⚪ Нет данных",
     }
     display["Статус"] = display["risk_status"].map(status_icons).fillna(display["risk_status"])
     display["Ближайшая граница"] = display["nearest_side"].map(
@@ -1752,6 +1878,12 @@ if active_page == "Мониторинг":
         "prevsettleprice": "PREV SETTLE",
     }
     display["Источник цены"] = display["price_source"].map(price_source_labels).fillna("—")
+    display["Торговая дата ISS"] = pd.to_datetime(
+        display["tradedate"], errors="coerce"
+    ).dt.strftime("%d.%m.%Y").fillna("—")
+    display["Время записи ISS"] = pd.to_datetime(
+        display["systime"], errors="coerce"
+    ).dt.strftime("%d.%m.%Y %H:%M").fillna("—")
     display["Special"] = display.apply(
         lambda row: ("SPECIAL" + (f" · {row['special_group']}" if row.get("special_group") else "")) if row.get("special_mode") else "—",
         axis=1,
@@ -1766,12 +1898,44 @@ if active_page == "Мониторинг":
         "Статус", "БА", "Группа", "Контракт", "Цена", "Источник цены",
         "Ближайшая граница", "До ближайшей, %", "Положение, %",
         "LOW", "HIGH", "До LOW, %", "До HIGH, %", "Special",
+        "Торговая дата ISS", "Время записи ISS",
     ]]
+    if not monitor_detailed:
+        table = table[[
+            "Статус", "БА", "Контракт", "Цена",
+            "Источник цены", "Ближайшая граница",
+            "До ближайшей, %", "Положение, %",
+        ]]
+    else:
+        with st.expander("Пояснение временных полей ISS", expanded=False):
+            st.write("TRADEDATE — дата торговых данных, SYSTIME — серверное время записи. "
+                     "Они не гарантируют время последней сделки.")
+
+    # Limit each rendered table to one screenful, avoiding nested vertical
+    # scrolling that traps mouse-wheel events. Selection stays page-relative.
+    monitor_page_size = 16
+    monitor_total_pages = max(1, (len(display) + monitor_page_size - 1) // monitor_page_size)
+    if st.session_state.get("monitor_page") not in range(1, monitor_total_pages + 1):
+        st.session_state["monitor_page"] = 1
+    if monitor_total_pages > 1:
+        pager_info, pager_control = st.columns([4, 1.1], gap="medium", vertical_alignment="bottom")
+        with pager_info:
+            st.caption(f"Всего {len(display)} контрактов · по {monitor_page_size} на странице")
+        with pager_control:
+            monitor_page = st.selectbox(
+                "Страница", range(1, monitor_total_pages + 1),
+                key="monitor_page", format_func=lambda page: f"{page} / {monitor_total_pages}",
+            )
+    else:
+        monitor_page = 1
+    start_row = (monitor_page - 1) * monitor_page_size
+    visible_display = display.iloc[start_row:start_row + monitor_page_size].reset_index(drop=True)
+    visible_table = table.iloc[start_row:start_row + monitor_page_size].reset_index(drop=True)
 
     event = st.dataframe(
-        table, use_container_width=True, hide_index=True,
-        height=min(650, 86 + 35 * max(1, len(table))),
-        on_select="rerun", selection_mode="single-row", key="market_monitor_table",
+        visible_table, width="stretch", hide_index=True,
+        height="content",
+        on_select="rerun", selection_mode="single-row", key=selection_key(visible_display, source_fetched_at, attention_threshold),
         column_config={
             "Цена": st.column_config.NumberColumn(format="%.4f"),
             "LOW": st.column_config.NumberColumn(format="%.4f"),
@@ -1797,18 +1961,15 @@ if active_page == "Мониторинг":
 
     if selected_rows:
         selected_idx = selected_rows[0]
-        if 0 <= selected_idx < len(display):
-            selected = display.iloc[selected_idx]
+        if 0 <= selected_idx < len(visible_display):
+            selected = visible_display.iloc[selected_idx]
             live_distance = _as_float(selected.get("nearest_pct"))
             live_side = str(selected.get("nearest_side") or "—")
             selected_source = price_source_labels.get(str(selected.get("price_source") or ""), "—")
-            st.markdown(
-                f"**Выбрано:** `{html.escape(str(selected['assetcode']))}` · `{html.escape(str(selected['secid']))}` · "
-                f"{html.escape(str(selected['Статус']))} · цена из **{html.escape(selected_source)}**"
-            )
+            st.markdown(monitor_corridor_html(selected), unsafe_allow_html=True)
             st.button(
                 f"Открыть {selected['assetcode']} · {selected['secid']} в карточке контракта →",
-                type="primary", use_container_width=True,
+                type="primary", width="stretch",
                 on_click=open_contract_from_monitor,
                 args=(str(selected["assetcode"]), str(selected["secid"])),
             )
@@ -1967,7 +2128,7 @@ if active_page == "Мониторинг":
                 )
                 st.altair_chart(
                     (corridor + low_line + high_line + price_line).properties(height=315),
-                    use_container_width=True,
+                    width="stretch",
                 )
 
                 st.markdown("**Расстояние до ближайшей границы**")
@@ -1991,7 +2152,7 @@ if active_page == "Мониторинг":
                 ).encode(y="threshold:Q")
                 st.altair_chart(
                     (nearest_chart + watch_rule + critical_rule).properties(height=300),
-                    use_container_width=True,
+                    width="stretch",
                 )
                 st.caption(
                     f"Пунктирные уровни: WATCH = {attention_threshold:.2f}% · CRITICAL = {MONITOR_CRITICAL_THRESHOLD:.2f}%. "
@@ -2087,6 +2248,14 @@ if not contract_rows.empty and "secid" in contract_rows.columns:
     selected_rows = contract_rows[contract_rows["secid"].astype(str) == selected_contract]
     if not selected_rows.empty:
         contract_row = selected_rows.iloc[0]
+        # Fail closed if the source ever produces a mismatched BA/series;
+        # prices and GO must never be calculated from another underlying.
+        if str(contract_row.get("assetcode", "")).strip().upper() != str(assetcode).strip().upper():
+            st.error("Данные контракта не соответствуют выбранному базисному активу. Расчёт остановлен.")
+            st.stop()
+        if str(contract_row.get("secid", "")).strip() != selected_contract:
+            st.error("Код выбранной серии не соответствует данным ISS. Расчёт остановлен.")
+            st.stop()
 else:
     if active_page == "Обзор":
         st.info(
@@ -2275,7 +2444,16 @@ if active_page == "Обзор":
     )
     k1, k2, k3, k4, k5, k6 = st.columns(6, gap="small")
     with k1:
-        simple_metric_card("Текущая цена", fmt_number(price_ref.value, price_decimals))
+        trade_date = (
+            pd.Timestamp(contract_row.get("tradedate")).strftime("%d.%m.%Y")
+            if contract_row is not None and pd.notna(contract_row.get("tradedate"))
+            else "—"
+        )
+        price_source = price_ref.field.upper() if price_ref.field else "Нет цены"
+        simple_metric_card(
+            "Цена ISS", fmt_number(price_ref.value, price_decimals),
+            subvalue=f"{price_source} · дата торгов {trade_date}",
+        )
     with k2:
         simple_metric_card("Стоимость контракта", fmt_compact_rub(current_contract_value))
     with k3:
@@ -2504,7 +2682,7 @@ if active_page == "Обзор":
             technical_df = pd.DataFrame(technical_rows)
             st.dataframe(
                 technical_df,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 height=min(1200, 36 * len(technical_df) + 38),
                 column_config={
@@ -2695,7 +2873,7 @@ if active_page == "Спецрежимы НКЦ":
             active_display["Зарубежная площадка"] = active_display.get("market_group", "")
             st.dataframe(
                 active_display[["Событие / площадка", "Зарубежная площадка", "Параметр", "Что меняется", "Значение", "Единица", "Начало", "Окончание"]],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
 
@@ -2715,7 +2893,7 @@ if active_page == "Спецрежимы НКЦ":
                     future_display[["Дата праздника", "Событие", "Начало", "Окончание", "Параметр", "Значение", "unit"]].rename(
                         columns={"unit": "Единица"}
                     ),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
 
@@ -2739,7 +2917,7 @@ if active_page == "Спецрежимы НКЦ":
                     calendar_display[display_columns].rename(
                         columns={"assetcode": "Код БА", "asset_title": "Базисный актив"}
                     ),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                     height=520,
                 )
@@ -2788,15 +2966,15 @@ if active_page == "Калькулятор ГО":
             st.caption("Быстрый переход через концентрационные пороги")
             q1, q2, q3, q4, q5 = st.columns(5)
             with q1:
-                st.button("1", key=f"q1_{calc_key}", use_container_width=True, on_click=set_session_number, args=(calc_key, 1), help="1 контракт")
+                st.button("1", key=f"q1_{calc_key}", width="stretch", on_click=set_session_number, args=(calc_key, 1), help="1 контракт")
             with q2:
-                st.button("LK1", key=f"qlk1_{calc_key}", use_container_width=True, disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, lk1_demo or 0))
+                st.button("LK1", key=f"qlk1_{calc_key}", width="stretch", disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, lk1_demo or 0))
             with q3:
-                st.button("LK1 + 1", key=f"qlk1p_{calc_key}", use_container_width=True, disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, (lk1_demo or 0) + 1))
+                st.button("LK1 + 1", key=f"qlk1p_{calc_key}", width="stretch", disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, (lk1_demo or 0) + 1))
             with q4:
-                st.button("LK2", key=f"qlk2_{calc_key}", use_container_width=True, disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, lk2_demo or 0))
+                st.button("LK2", key=f"qlk2_{calc_key}", width="stretch", disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, lk2_demo or 0))
             with q5:
-                st.button("LK2 + 1", key=f"qlk2p_{calc_key}", use_container_width=True, disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, (lk2_demo or 0) + 1))
+                st.button("LK2 + 1", key=f"qlk2p_{calc_key}", width="stretch", disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, (lk2_demo or 0) + 1))
     else:
         calculator_position_contracts = st.number_input(
             "Количество контрактов", min_value=0, value=1, step=1, key=calc_key,
@@ -2805,15 +2983,15 @@ if active_page == "Калькулятор ГО":
         st.caption("Быстрый demo: покажите переход ставки на превышении порога одним кликом.")
         q1, q2, q3, q4, q5 = st.columns(5)
         with q1:
-            st.button("1 контракт", key=f"q1_{calc_key}", use_container_width=True, on_click=set_session_number, args=(calc_key, 1))
+            st.button("1 контракт", key=f"q1_{calc_key}", width="stretch", on_click=set_session_number, args=(calc_key, 1))
         with q2:
-            st.button("LK1", key=f"qlk1_{calc_key}", use_container_width=True, disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, lk1_demo or 0))
+            st.button("LK1", key=f"qlk1_{calc_key}", width="stretch", disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, lk1_demo or 0))
         with q3:
-            st.button("LK1 + 1", key=f"qlk1p_{calc_key}", use_container_width=True, disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, (lk1_demo or 0) + 1))
+            st.button("LK1 + 1", key=f"qlk1p_{calc_key}", width="stretch", disabled=lk1_demo is None, on_click=set_session_number if lk1_demo is not None else None, args=(calc_key, (lk1_demo or 0) + 1))
         with q4:
-            st.button("LK2", key=f"qlk2_{calc_key}", use_container_width=True, disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, lk2_demo or 0))
+            st.button("LK2", key=f"qlk2_{calc_key}", width="stretch", disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, lk2_demo or 0))
         with q5:
-            st.button("LK2 + 1", key=f"qlk2p_{calc_key}", use_container_width=True, disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, (lk2_demo or 0) + 1))
+            st.button("LK2 + 1", key=f"qlk2p_{calc_key}", width="stretch", disabled=lk2_demo is None, on_click=set_session_number if lk2_demo is not None else None, args=(calc_key, (lk2_demo or 0) + 1))
 
     calculator_position_margin = progressive_position_margin(
         calculator_position_contracts,
@@ -2858,7 +3036,7 @@ if active_page == "Калькулятор ГО":
     s1, s2, s3 = st.columns(3)
     with s1:
         metric_card(
-            "Расчётное ГО", fmt_rub(calculator_position_margin.total_margin_rub),
+            "Оценка ГО", fmt_rub(calculator_position_margin.total_margin_rub),
             "Аналитическая оценка простой позиции", code="TOTAL MARGIN",
             tone="green" if calculator_position_margin.error is None else "neutral",
         )
@@ -2934,7 +3112,7 @@ if active_page == "Калькулятор ГО":
                     },
                 ]
             )
-            st.dataframe(calculator_breakdown, use_container_width=True, hide_index=True)
+            st.dataframe(calculator_breakdown, width="stretch", hide_index=True)
 
         st.caption(
             "Оценка использует официальный INITIALMARGIN первого уровня и масштабирует следующие ступени "
@@ -2948,25 +3126,8 @@ if active_page == "Методика":
     with reference_tab:
         st.subheader("Справочник параметров")
         methodology = pd.read_csv(DATA_DIR / "methodology.csv", sep=";", encoding="utf-8-sig", dtype=str)
-        methodology_display = methodology[
-            ["parameter", "title", "unit", "short_description", "how_to_read"]
-        ].rename(
-            columns={
-                "parameter": "Параметр",
-                "title": "Название",
-                "unit": "Единица",
-                "short_description": "Что означает",
-                "how_to_read": "Как интерпретировать",
-            }
-        )
-        methodology_html = methodology_display.to_html(
-            index=False,
-            escape=True,
-            border=0,
-            classes="methodology-table",
-        )
         st.markdown(
-            f'<div class="methodology-table-wrap">{methodology_html}</div>',
+            parameter_reference_html(methodology.to_dict("records")),
             unsafe_allow_html=True,
         )
 
@@ -3052,7 +3213,7 @@ if active_page == "Методика":
                         }
                     )
             if example_rows:
-                st.dataframe(pd.DataFrame(example_rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(example_rows), width="stretch", hide_index=True)
 
         st.markdown("#### 5. ГО позиции по уровням концентрации")
         st.latex(r"N_{LK1}=\frac{LK1}{LOTVOLUME},\qquad N_{LK2}=\frac{LK2}{LOTVOLUME}")
@@ -3121,4 +3282,5 @@ if active_page == "Методика":
             "Из общего лимита вычитается число сдвигов, уже использованных в основной сессии; "
             "результат дополнительно ограничивается AutoShiftNumMREvg."
         )
+
 

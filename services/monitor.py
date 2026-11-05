@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
@@ -8,7 +9,7 @@ import pandas as pd
 
 from .contracts import contracts_for_asset, reference_price
 from .boundaries import is_currency_future
-from .loaders import latest_row
+from .loaders import latest_row, _assetcode_key
 from .special_params import active_special_parameters
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
@@ -56,7 +57,7 @@ def _number(value: object) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    if pd.isna(number):
+    if not math.isfinite(number):
         return None
     return number
 
@@ -88,11 +89,45 @@ def build_market_monitor(
         return pd.DataFrame()
 
     check_at = check_at or datetime.now(MOSCOW_TZ)
+    asof_date = pd.Timestamp(check_at)
+    if asof_date.tzinfo is not None:
+        asof_date = asof_date.tz_convert(MOSCOW_TZ).tz_localize(None)
+    asof_date = asof_date.normalize()
     codes = sorted({str(x).strip() for x in contracts_df["assetcode"].dropna() if str(x).strip()})
+
+    # Group once instead of scanning the full contract and risk-rate tables for
+    # every underlying. Keep contracts_for_asset/latest_row for exact priority.
+    contract_keys = contracts_df["assetcode"].astype(str).str.upper()
+    contracts_by_code = {
+        str(key): group
+        for key, group in contracts_df.groupby(contract_keys, sort=False)
+    }
+    market_by_code = {}
+    if market_df is not None and not market_df.empty and "assetcode" in market_df.columns:
+        market_keys = market_df["assetcode"].map(_assetcode_key)
+        market_by_code = {
+            str(key): group
+            for key, group in market_df.groupby(market_keys, sort=False)
+        }
+    special_by_code = {}
+    if special_calendar_df is not None and not special_calendar_df.empty and "assetcode" in special_calendar_df.columns:
+        special_keys = special_calendar_df["assetcode"].astype(str).str.upper()
+        special_by_code = {
+            str(key): group
+            for key, group in special_calendar_df.groupby(special_keys, sort=False)
+        }
     rows: list[dict[str, object]] = []
 
     for code in codes:
-        candidates = contracts_for_asset(contracts_df, code)
+        code_contracts = contracts_by_code.get(code.upper())
+        if code_contracts is None:
+            continue
+        candidates = contracts_for_asset(code_contracts, code, today=asof_date)
+        if "lasttradedate" in candidates.columns:
+            # contracts_for_asset falls back to expired series if no active ones
+            # exist; Risk Radar must never present them as active.
+            trading_end = pd.to_datetime(candidates["lasttradedate"], errors="coerce")
+            candidates = candidates[trading_end.isna() | (trading_end >= asof_date)]
         if candidates.empty:
             continue
 
@@ -134,7 +169,9 @@ def build_market_monitor(
         elif high_distance is not None:
             nearest_side, nearest_pct = "HIGH", high_distance
 
-        if price is not None and low is not None and price < low:
+        if price is None or low is None or high is None or high <= low:
+            risk_status = "NO DATA"
+        elif price < low:
             risk_status = "OUTSIDE LOW"
         elif price is not None and high is not None and price > high:
             risk_status = "OUTSIDE HIGH"
@@ -149,14 +186,20 @@ def build_market_monitor(
         if price is not None and low is not None and high is not None and high > low:
             position_pct = max(0.0, min(100.0, (price - low) / (high - low) * 100.0))
 
-        market_row = latest_row(market_df, code)
+        matching_market = market_by_code.get(_assetcode_key(code))
+        market_row = latest_row(matching_market, code) if matching_market is not None else None
         title = ""
         if market_row is not None:
             value = market_row.get("title")
             if value is not None and not pd.isna(value):
                 title = str(value).strip()
         contract_name = str(chosen.get("shortname") or chosen.get("secname") or "").strip()
-        special_rows = active_special_parameters(special_calendar_df, code, check_at)
+        matching_special = special_by_code.get(code.upper())
+        special_rows = (
+            active_special_parameters(matching_special, code, check_at)
+            if matching_special is not None
+            else special_calendar_df.iloc[0:0]
+        )
         special_mode = not special_rows.empty
         special_group = ""
         if special_mode:
@@ -181,6 +224,7 @@ def build_market_monitor(
                 "special_mode": special_mode,
                 "special_group": special_group,
                 "price_source": chosen_ref.field if chosen_ref else "",
+                "tradedate": chosen.get("tradedate"),
                 "systime": chosen.get("systime"),
             }
         )
@@ -201,3 +245,4 @@ def monitor_groups(frame: pd.DataFrame) -> list[str]:
     preferred = ["Валюта", "Ставки", "Индексы", "Акции", "Товары", "Металлы", "Прочие"]
     available = {str(x) for x in frame["group"].dropna()}
     return [item for item in preferred if item in available]
+
