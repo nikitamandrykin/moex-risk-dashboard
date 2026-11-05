@@ -31,4 +31,8 @@ jobs:
         run: python tests_dashboard_v2.py && python tests_dashboard_app.py
       - name: Compile Python files
         run: python -m py_compile streamlit_app.py app.py services/*.py scripts/*.py
+      - name: Audit current ISS against dashboard parsing (non-blocking)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dashboard-v2'
+        continue-on-error: true
+        run: python -m scripts.audit_live_iss
 
