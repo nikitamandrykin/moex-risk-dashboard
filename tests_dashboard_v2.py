@@ -8,7 +8,7 @@ from pandas.testing import assert_frame_equal
 
 from services.monitor import build_market_monitor
 from services.monitor_cache import cached_market_monitor, monitor_clock
-from services.dashboard_ui import source_health_html, selection_key, asset_labels_for_codes, monitor_corridor_html
+from services.dashboard_ui import source_health_html, selection_key, asset_labels_for_codes, monitor_corridor_html, parameter_reference_html
 from services.loaders import SourceStatus
 
 now = datetime(2026, 10, 21, 12, 0, 20, tzinfo=ZoneInfo('Europe/Moscow'))
@@ -104,5 +104,20 @@ markup = monitor_corridor_html(malicious)
 assert "<script>" not in markup and "<img" not in markup
 assert "&lt;script&gt;" in markup and "&lt;img" in markup
 
+
+# Methodology is a responsive, HTML-escaped reference rather than a 1650px-wide table.
+reference = parameter_reference_html([
+    {"parameter": "MR1", "title": "Ставка риска",
+     "unit": "%", "short_description": "Первый уровень",
+     "how_to_read": "До LK1"},
+    {"parameter": "<script>alert(1)</script>", "title": "Danger",
+     "unit": "", "short_description": '<img src=x onerror="bad">',
+     "how_to_read": "test"},
+])
+assert 'parameter-reference-grid' in reference
+assert "<article" in reference and "<details>" in reference
+assert "До LK1" in reference
+assert "<script>" not in reference and "<img " not in reference
+assert "&lt;script&gt;" in reference and "&lt;img" in reference
 
 print('Dashboard cache, calendar boundaries, missing-data and selection regressions OK')
