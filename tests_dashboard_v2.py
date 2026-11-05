@@ -8,7 +8,7 @@ from pandas.testing import assert_frame_equal
 
 from services.monitor import build_market_monitor
 from services.monitor_cache import cached_market_monitor, monitor_clock
-from services.dashboard_ui import source_health_html, selection_key, asset_labels_for_codes, monitor_corridor_html, parameter_reference_html
+from services.dashboard_ui import source_health_html, selection_key, asset_labels_for_codes, monitor_corridor_html, parameter_reference_html, available_overview_assets
 from services.loaders import SourceStatus
 
 now = datetime(2026, 10, 21, 12, 0, 20, tzinfo=ZoneInfo('Europe/Moscow'))
@@ -119,5 +119,32 @@ assert "<article" in reference and "<details>" in reference
 assert "До LK1" in reference
 assert "<script>" not in reference and "<img " not in reference
 assert "&lt;script&gt;" in reference and "&lt;img" in reference
+
+
+# Static-only or expired underlyings must not be shown as tradable in Overview.
+selection_date = pd.Timestamp("2026-11-05")
+listed = pd.DataFrame([
+    {"assetcode": "AI92", "mr1": .1},
+    {"assetcode": "RTS", "mr1": .13},
+])
+listed_contracts = pd.DataFrame([
+    {"assetcode": "AI92", "secid": "92X6",
+     "lasttradedate": pd.Timestamp("2026-11-27")},
+    {"assetcode": "1MFR", "secid": "MFF5",
+     "lasttradedate": pd.Timestamp("2025-01-31")},
+    {"assetcode": "FRESH", "secid": "NEWZ6",
+     "lasttradedate": pd.Timestamp("2026-12-17")},
+])
+selected_codes = available_overview_assets(
+    ["1MFR", "AI92", "RTS", "FRESH"], listed, listed_contracts, asof=selection_date
+)
+assert selected_codes == ["AI92", "RTS", "FRESH"]
+assert available_overview_assets(
+    ["1MFR"], pd.DataFrame(), listed_contracts, asof=selection_date
+) == []
+# A documented risk rate is still useful to show even with no active future.
+assert available_overview_assets(
+    ["RTS"], listed, pd.DataFrame(), asof=selection_date
+) == ["RTS"]
 
 print('Dashboard cache, calendar boundaries, missing-data and selection regressions OK')
