@@ -34,6 +34,32 @@ def asset_labels_for_codes(assetcodes, market_df):
     return labels
 
 
+
+def available_overview_assets(assetcodes, market_df, contracts_df, *, asof):
+    """Only offer underlyings with risk rates or a non-expired contract.
+
+    Some static/holiday catalogs include legacy codes with no current futures
+    or MR/LK records; those codes should not look like tradable instruments in
+    the public Overview. Other pages may still access their static catalogs.
+    """
+    allowed = set()
+    if (
+        market_df is not None and not market_df.empty
+        and {"assetcode", "mr1"}.issubset(market_df.columns)
+    ):
+        available_rates = pd.to_numeric(market_df["mr1"], errors="coerce").notna()
+        allowed.update(market_df.loc[available_rates, "assetcode"].map(_assetcode_key))
+    if contracts_df is not None and not contracts_df.empty and "assetcode" in contracts_df.columns:
+        if "lasttradedate" in contracts_df.columns:
+            expiry = pd.to_datetime(contracts_df["lasttradedate"], errors="coerce")
+            valid = expiry.isna() | (expiry >= pd.Timestamp(asof).normalize())
+        else:
+            valid = pd.Series(True, index=contracts_df.index)
+        allowed.update(contracts_df.loc[valid, "assetcode"].map(_assetcode_key))
+    return [code for code in assetcodes if _assetcode_key(code) in allowed]
+
+
+
 def selection_key(frame, fetched_at, threshold):
     # A row number is meaningful only for this ordered set and snapshot.
     payload = json.dumps([frame["secid"].tolist(), fetched_at, threshold], default=str)
