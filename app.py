@@ -58,6 +58,7 @@ from services.dashboard_ui import (
     source_health_html,
     selection_key,
     asset_labels_for_codes,
+    available_overview_assets,
     monitor_corridor_html,
     parameter_reference_html,
 )
@@ -1654,6 +1655,21 @@ assetcodes = union_assetcodes(market_df, static_df, offdays_df, extra_df, contra
 if not assetcodes:
     st.error("Не найден ни один assetcode. Проверьте источники данных или загрузите ручной файл.")
     st.stop()
+
+if active_page == "Обзор":
+    # The static/holiday catalogs may contain dormant underlyings such as
+    # 1MFR that do not appear in today's risk-rate or active-contract ISS feed.
+    # Preserve them for the specialized pages, but not in the public selector.
+    assetcodes = available_overview_assets(
+        assetcodes, market_df, contracts_df,
+        asof=pd.Timestamp.now(tz="Europe/Moscow").tz_localize(None),
+    )
+    if not assetcodes:
+        st.error(
+            "Нет базисных активов с доступными риск-параметрами или действующими контрактами. "
+            "Проверьте официальный источник MOEX ISS."
+        )
+        st.stop()
 
 # Выбор БА хранится отдельно от состояния виджета. Это важно для lazy navigation:
 # на страницах «Границы», «Калькулятор ГО» и т.д. selectbox не рендерится,
