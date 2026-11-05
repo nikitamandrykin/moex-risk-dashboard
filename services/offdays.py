@@ -217,6 +217,74 @@ def read_offdays_fallback(path: Path) -> pd.DataFrame:
     return df
 
 
+
+# Additional official NCC/MOEX publication (effective 18 September 2026),
+# newer than the workbook still linked from the NCC risk-parameters page
+# (17 July 2026). These values fill gaps ONLY: an explicit value provided
+# in an updated official table always takes precedence.
+# https://www.moex.com/n104346
+PUBLISHED_OFFDAYS_EFFECTIVE_FROM = pd.Timestamp("2026-09-18")
+PUBLISHED_OFFDAYS_URL = "https://www.moex.com/n104346"
+PUBLISHED_OFFDAYS_VALUES: dict[str, float] = {
+    code: 1.0 for code in (
+        "KOREA", "SAMSUNG", "HYNIX", "AMDF", "TSLAF", "APPF",
+        "SNDKF", "COHRF", "NBISF", "HOODF", "AMZNF", "NFLXF",
+        "LITEF", "CRWDF", "PANWF", "SMCIF", "UBERF", "COINF", "LULUF",
+    )
+}
+
+
+def supplement_offdays_with_published_values(
+    frame: pd.DataFrame, *, asof: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    """Fill missing weekend shifts from a dated official NCC announcement.
+
+    This is a documented supplement, NOT live source data. In particular,
+    neither missing evening-session settings nor unknown new underlyings are
+    inferred. An actual published value in the NCC workbook wins over the
+    earlier announcement; non-finite or blank cells are treated as missing.
+    """
+    if frame is None or frame.empty or "assetcode" not in frame.columns:
+        return frame.copy() if frame is not None else pd.DataFrame()
+    reference_date = (
+        pd.Timestamp.now(tz="Europe/Moscow").tz_localize(None)
+        if asof is None else pd.Timestamp(asof)
+    )
+    if reference_date.tzinfo is not None:
+        reference_date = reference_date.tz_convert("Europe/Moscow").tz_localize(None)
+    if reference_date.normalize() < PUBLISHED_OFFDAYS_EFFECTIVE_FROM:
+        return frame.copy()
+
+    result = frame.copy()
+    field = "offdaystradingpricerangeshift"
+    if field not in result.columns:
+        result[field] = float("nan")
+    if "offdays_source" not in result.columns:
+        result["offdays_source"] = ""
+    if "offdays_source_url" not in result.columns:
+        result["offdays_source_url"] = ""
+    keys = result["assetcode"].astype(str).str.strip().str.upper()
+    for code, published_value in PUBLISHED_OFFDAYS_VALUES.items():
+        matching = keys.eq(code)
+        current = pd.to_numeric(result.loc[matching, field], errors="coerce")
+        if current.notna().any():
+            continue
+        if matching.any():
+            idx = result.index[matching][-1]
+            result.at[idx, field] = published_value
+            result.at[idx, "offdays_source"] = "НКЦ · опубликовано 17.09.2026"
+            result.at[idx, "offdays_source_url"] = PUBLISHED_OFFDAYS_URL
+        else:
+            result = pd.concat([result, pd.DataFrame([{
+                "assetcode": code,
+                "title": "",
+                field: published_value,
+                "offdays_source": "НКЦ · опубликовано 17.09.2026",
+                "offdays_source_url": PUBLISHED_OFFDAYS_URL,
+            }])], ignore_index=True)
+    return result
+
+
 def _validate_offdays(df: pd.DataFrame) -> None:
     if df.empty:
         raise ValueError("источник OffDays не содержит строк")
