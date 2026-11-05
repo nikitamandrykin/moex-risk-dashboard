@@ -231,6 +231,27 @@ assert missing_second_level.total_margin_rub is None
 assert missing_second_level.error is not None
 print("Progressive GO tests OK: 100×MR1, 150×MR2, 70×MR3 =", fmt_compact_rub(progressive.total_margin_rub))
 
+# Non-finite floats must never be displayed as plausible prices, margins or
+# monetary equivalents. A real fallback may still be used if one exists.
+assert reference_price(pd.Series({"last": float("inf"), "settleprice": 101})).field == "settleprice"
+assert reference_price(pd.Series({"last": float("nan"), "settleprice": float("inf")})).value is None
+assert morning_reference_price(pd.Series({
+    "prevsettleprice": float("inf"), "lastsettleprice": 98.0,
+})).field == "lastsettleprice"
+assert price_to_rub(100, 0, 5) is None
+assert price_to_rub(100, -1, 5) is None
+assert price_to_rub(float("inf"), 1, 5) is None
+assert price_to_rub(100, 1, float("inf")) is None
+assert concentration_limit_to_rub(float("inf"), 10, 100) is None
+assert concentration_limit_to_rub(100, 10, float("inf")) is None
+assert progressive_position_margin(float("inf"), 100, 1000, 2000, .1, .2, .3, 100).error is not None
+assert progressive_position_margin(10, 100, 1000, 2000, float("inf"), .2, .3, 100).error is not None
+assert progressive_position_margin(15, 100, 1000, 2000, .1, float("inf"), .3, 100).error is not None
+assert simple_position_margin_before_lk1(float("inf"), 1, 100, 50) == (None, None, None)
+assert weekend_limits_from_price(100, float("inf")) == (None, None)
+assert weekend_limits_from_price(100, -.03) == (None, None)
+print("Finite-value guard tests OK")
+
 
 from datetime import datetime
 from tempfile import TemporaryDirectory
