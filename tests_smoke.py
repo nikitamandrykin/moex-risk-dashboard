@@ -231,6 +231,27 @@ assert missing_second_level.total_margin_rub is None
 assert missing_second_level.error is not None
 print("Progressive GO tests OK: 100×MR1, 150×MR2, 70×MR3 =", fmt_compact_rub(progressive.total_margin_rub))
 
+# Exact concentration threshold checks (base margin 100 per contract,
+# MR2/MR1=1.6, MR3/MR1=2.5). The increment must be charged marginally.
+def check_margin(n, expected, level):
+    result = progressive_position_margin(n, 10, 1000, 2500, .10, .16, .25, 100)
+    assert result.error is None and result.highest_level == level
+    assert abs(result.total_margin_rub - expected) < 1e-8, (n, result)
+
+check_margin(0, 0, 0)
+check_margin(100, 10_000, 1)  # LK1 exactly
+check_margin(101, 10_160, 2)  # One contract beyond LK1
+check_margin(250, 34_000, 2)  # LK2 exactly
+check_margin(251, 34_250, 3)  # One contract beyond LK2
+
+# Thresholds in BA units can split an individual 3-unit contract.
+fractional = progressive_position_margin(4, 3, 10, 20, .1, .2, .3, 300)
+assert fractional.error is None
+assert abs(fractional.level1_contracts - 10/3) < 1e-9
+assert abs(fractional.level2_contracts - 2/3) < 1e-9
+assert abs(fractional.total_margin_rub - 1400) < 1e-9
+print("GO boundary tests OK: LK1, LK1+1, LK2, LK2+1, fractional lot")
+
 # Non-finite floats must never be displayed as plausible prices, margins or
 # monetary equivalents. A real fallback may still be used if one exists.
 assert reference_price(pd.Series({"last": float("inf"), "settleprice": 101})).field == "settleprice"
