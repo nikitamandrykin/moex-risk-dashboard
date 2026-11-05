@@ -216,11 +216,21 @@ def contracts_for_asset(
     if rows.empty:
         return rows
 
-    reference_date = (today or pd.Timestamp.today()).normalize()
+    # Contract expiry follows the exchange's Moscow calendar, not the UTC
+    # timezone of the Railway container. Never fall back to expired contracts:
+    # an expired futures series must not be presented as a current instrument.
+    reference_date = (
+        pd.Timestamp.now(tz="Europe/Moscow").tz_localize(None)
+        if today is None else pd.Timestamp(today)
+    )
+    if reference_date.tzinfo is not None:
+        reference_date = reference_date.tz_convert("Europe/Moscow").tz_localize(None)
+    reference_date = reference_date.normalize()
     if "lasttradedate" in rows.columns:
-        active = rows[rows["lasttradedate"].isna() | (rows["lasttradedate"] >= reference_date)]
-        if not active.empty:
-            rows = active
+        trading_end = pd.to_datetime(rows["lasttradedate"], errors="coerce")
+        rows = rows[trading_end.isna() | (trading_end >= reference_date)]
+        if rows.empty:
+            return rows.reset_index(drop=True)
 
     price_fields = [field for field in ("last", "settleprice", "lastsettleprice", "prevsettleprice") if field in rows.columns]
     if price_fields:
