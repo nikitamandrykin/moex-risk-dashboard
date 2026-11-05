@@ -27,6 +27,9 @@ assert 'monitor_page_size = 16' in monitor
 assert 'height="content"' in monitor
 assert 'visible_display.iloc[selected_idx]' in monitor
 assert 'st.segmented_control(' in text
+assert 'NAV_PAGES = ["Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]' in text
+assert 'if not PUBLIC_DEPLOYMENT:\\n    with st.expander("Состояние источников, обновление и диагностика"' in text
+assert 'st.session_state["active_page"] = "Обзор"' in text
 assert 'parameter_reference_html(methodology.to_dict("records"))' in text
 assert 'methodology_html = methodology_display.to_html(' not in text
 assert 'Последняя точка графика дополняется текущим live-состоянием' in monitor
