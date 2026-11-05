@@ -40,6 +40,10 @@ with patch('requests.get', side_effect=AssertionError('Unexpected network reques
     app.run()
     assert not app.exception, app.exception
     assert app.session_state['active_page'] == 'Обзор'
+    # The public Overview has no decorative source-status banner. Keep the
+    # existing warning messages when the source is a cached/fallback snapshot.
+    assert not any('<div class="source-summary' in m.value for m in app.markdown)
+    assert app.warning, "Fallback fixture must still show a data quality warning"
     assert all('Состояние источников, обновление и диагностика' != exp.label
                for exp in app.expander)
     for page in ['Обзор', 'Границы', 'Калькулятор ГО', 'Спецрежимы НКЦ', 'Методика']:
