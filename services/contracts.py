@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 import json
+import math
 import tempfile
 import time
 
@@ -272,7 +273,7 @@ def reference_price(row: pd.Series | None) -> PriceReference:
                 number = float(value)
             except (TypeError, ValueError):
                 continue
-            if number != 0:
+            if number != 0 and math.isfinite(number):
                 return PriceReference(number, field, label, is_current)
 
     return PriceReference(None, "", "Цена не получена", False)
@@ -302,7 +303,7 @@ def morning_reference_price(row: pd.Series | None) -> PriceReference:
             number = float(value)
         except (TypeError, ValueError):
             continue
-        if number != 0:
+        if number != 0 and math.isfinite(number):
             return PriceReference(number, field, label, is_current)
     return PriceReference(None, "", "База для утренней оценки не получена", False)
 
@@ -315,11 +316,12 @@ def price_to_rub(price: Any, minstep: Any, stepprice: Any) -> float | None:
         stepprice_number = float(stepprice)
     except (TypeError, ValueError):
         return None
-    if pd.isna(price_number) or pd.isna(minstep_number) or pd.isna(stepprice_number):
+    if not all(map(math.isfinite, (price_number, minstep_number, stepprice_number))):
         return None
-    if minstep_number == 0:
+    if minstep_number <= 0 or stepprice_number <= 0:
         return None
-    return price_number / minstep_number * stepprice_number
+    result = price_number / minstep_number * stepprice_number
+    return result if math.isfinite(result) else None
 
 
 def contract_value_rub(row: pd.Series | None, price: PriceReference) -> tuple[float | None, str]:
@@ -330,7 +332,9 @@ def contract_value_rub(row: pd.Series | None, price: PriceReference) -> tuple[fl
     last_rub = row.get("last_rub")
     if price.field == "last" and last_rub is not None and not pd.isna(last_rub):
         try:
-            return float(last_rub), "LAST_RUB — официальное поле ISS"
+            amount = float(last_rub)
+            if math.isfinite(amount):
+                return amount, "LAST_RUB — официальное поле ISS"
         except (TypeError, ValueError):
             pass
 
@@ -357,13 +361,12 @@ def concentration_limit_to_rub(
     except (TypeError, ValueError):
         return None
     if (
-        pd.isna(lk_number)
-        or pd.isna(lot_number)
-        or pd.isna(last_rub_number)
+        not all(map(math.isfinite, (lk_number, lot_number, last_rub_number)))
         or lot_number <= 0
     ):
         return None
-    return lk_number / lot_number * last_rub_number
+    result = lk_number / lot_number * last_rub_number
+    return result if math.isfinite(result) else None
 
 
 
@@ -440,7 +443,7 @@ def progressive_position_margin(
             number = float(value)
         except (TypeError, ValueError):
             return None
-        return None if pd.isna(number) else number
+        return number if math.isfinite(number) else None
 
     try:
         contracts_number = abs(float(contracts_count))
@@ -452,11 +455,7 @@ def progressive_position_margin(
         return error_result("Нет обязательных данных первого уровня")
 
     if (
-        pd.isna(contracts_number)
-        or pd.isna(lot_number)
-        or pd.isna(lk1_number)
-        or pd.isna(initial_margin_number)
-        or pd.isna(mr1_number)
+        not all(map(math.isfinite, (contracts_number, lot_number, lk1_number, initial_margin_number, mr1_number)))
         or lot_number <= 0
         or lk1_number < 0
         or initial_margin_number < 0
@@ -565,10 +564,7 @@ def simple_position_margin_before_lk1(
         return None, None, None
 
     if (
-        pd.isna(contracts_number)
-        or pd.isna(lot_number)
-        or pd.isna(lk1_number)
-        or pd.isna(initial_margin_number)
+        not all(map(math.isfinite, (contracts_number, lot_number, lk1_number, initial_margin_number)))
         or lot_number <= 0
         or lk1_number < 0
         or initial_margin_number < 0
@@ -588,9 +584,14 @@ def weekend_limits_from_price(price: Any, shift_fraction: Any) -> tuple[float | 
         shift_number = float(shift_fraction)
     except (TypeError, ValueError):
         return None, None
-    if pd.isna(price_number) or pd.isna(shift_number):
+    if not math.isfinite(price_number) or not math.isfinite(shift_number):
+        return None, None
+    if shift_number < 0:
         return None, None
     if abs(shift_number) > 1:
         shift_number /= 100
     delta = abs(price_number) * shift_number
-    return price_number - delta, price_number + delta
+    lower, upper = price_number - delta, price_number + delta
+    if not math.isfinite(lower) or not math.isfinite(upper):
+        return None, None
+    return lower, upper
