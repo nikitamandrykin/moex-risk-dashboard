@@ -139,6 +139,32 @@ def monitor_corridor_html(selected):
     )
 
 
+
+def parameter_reference_html(records):
+    """Adaptive parameter reference: no fixed-width table or clipped columns."""
+    cards = []
+    for row in records:
+        def safe(field):
+            value = row.get(field, "")
+            if value is None or (not isinstance(value, (list, dict)) and pd.isna(value)):
+                return ""
+            return html.escape(str(value), quote=True)
+        code = safe("parameter")
+        title = safe("title")
+        unit = safe("unit")
+        description = safe("short_description")
+        usage = safe("how_to_read")
+        cards.append(
+            '<article class="parameter-reference-item">'
+            f'<div class="parameter-reference-head"><code>{code}</code>'
+            f'<span class="parameter-reference-unit">{unit}</span></div>'
+            f'<h3>{title}</h3><p>{description}</p>'
+            f'<details><summary>Как применять</summary><div>{usage}</div></details>'
+            '</article>'
+        )
+    return '<div class="parameter-reference-grid">' + ''.join(cards) + '</div>'
+
+
 def dashboard_styles():
     return """<style>
     .stApp { background:#fff; }
