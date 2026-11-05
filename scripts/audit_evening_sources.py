@@ -44,4 +44,15 @@ def main():
         for match in re.findall(r'[^"\x27\s<>]{0,80}(?:derivativesStaticParams|api/[a-zA-Z/_]+|\.js\?[^"\x27\s<>]{0,40})[^"\x27\s<>]{0,80}',html,flags=re.I):
             print("LIVE PAGE LINK",match[:240])
     except Exception as e:print("LIVE NCC PAGE ERROR",repr(e),flush=True)
+    try:
+        js=fetch_url(
+            "https://www.nationalclearingcentre.ru/js/ncc/dbg/derivativesStaticParams.js",
+            timeout=15,attempts=1,accept="application/javascript,*/*"
+        ).decode("utf-8",errors="replace")
+        print("DERIVATIVE STATIC PARAMS JS SIZE",len(js),flush=True)
+        for index,line in enumerate(js.splitlines(),1):
+            lower=line.lower()
+            if any(kw in lower for kw in ("api/", "http", "endpoint", "export","download","\.csv", "url:", "get(", "post(", "xlsx", "params/")):
+                print("NCC JS",index,line.strip()[:500],flush=True)
+    except Exception as e:print("LIVE NCC SCRIPT ERROR",repr(e),flush=True)
 if __name__=="__main__":main()
