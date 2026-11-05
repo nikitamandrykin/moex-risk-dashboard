@@ -358,7 +358,7 @@ assert "methodology-table-wrap" in app_text
 assert "HIGHLIMIT_RUB" in app_text
 assert "Калькулятор ГО по уровням концентрации" in app_text
 assert "GO_{position}=N_1IM_1+N_2IM_2+N_3IM_3" in app_text
-assert "NAV_PAGES = [\"Мониторинг\", \"Обзор\", \"Границы\", \"Калькулятор ГО\", \"Спецрежимы НКЦ\", \"Методика\"]" in app_text
+assert "NAV_PAGES = [\"Обзор\", \"Границы\", \"Калькулятор ГО\", \"Спецрежимы НКЦ\", \"Методика\"]" in app_text
 assert "if active_page == \"Обзор\":" in app_text
 assert "load_all_sources_cached" in app_text and "SOURCE_BUNDLE_KEY" in app_text
 assert "Количество контрактов" in app_text
