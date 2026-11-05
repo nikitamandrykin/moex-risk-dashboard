@@ -53,7 +53,14 @@ from services.boundaries import (
 )
 from services.monitor import build_market_monitor, monitor_groups
 from services.monitor_cache import cached_market_monitor, monitor_clock
-from services.dashboard_ui import dashboard_styles, source_health_html, selection_key, asset_labels_for_codes, monitor_corridor_html
+from services.dashboard_ui import (
+    dashboard_styles,
+    source_health_html,
+    selection_key,
+    asset_labels_for_codes,
+    monitor_corridor_html,
+    parameter_reference_html,
+)
 from services.history import history_change_summary, history_for_contract, load_risk_history
 from services.collateral import load_collateral_sources, lookup_collateral
 from services.special_params import (
@@ -3079,25 +3086,8 @@ if active_page == "Методика":
     with reference_tab:
         st.subheader("Справочник параметров")
         methodology = pd.read_csv(DATA_DIR / "methodology.csv", sep=";", encoding="utf-8-sig", dtype=str)
-        methodology_display = methodology[
-            ["parameter", "title", "unit", "short_description", "how_to_read"]
-        ].rename(
-            columns={
-                "parameter": "Параметр",
-                "title": "Название",
-                "unit": "Единица",
-                "short_description": "Что означает",
-                "how_to_read": "Как интерпретировать",
-            }
-        )
-        methodology_html = methodology_display.to_html(
-            index=False,
-            escape=True,
-            border=0,
-            classes="methodology-table",
-        )
         st.markdown(
-            f'<div class="methodology-table-wrap">{methodology_html}</div>',
+            parameter_reference_html(methodology.to_dict("records")),
             unsafe_allow_html=True,
         )
 
