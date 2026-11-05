@@ -2232,6 +2232,14 @@ if not contract_rows.empty and "secid" in contract_rows.columns:
     selected_rows = contract_rows[contract_rows["secid"].astype(str) == selected_contract]
     if not selected_rows.empty:
         contract_row = selected_rows.iloc[0]
+        # Fail closed if the source ever produces a mismatched BA/series;
+        # prices and GO must never be calculated from another underlying.
+        if str(contract_row.get("assetcode", "")).strip().upper() != str(assetcode).strip().upper():
+            st.error("Данные контракта не соответствуют выбранному базисному активу. Расчёт остановлен.")
+            st.stop()
+        if str(contract_row.get("secid", "")).strip() != selected_contract:
+            st.error("Код выбранной серии не соответствует данным ISS. Расчёт остановлен.")
+            st.stop()
 else:
     if active_page == "Обзор":
         st.info(
@@ -2420,7 +2428,16 @@ if active_page == "Обзор":
     )
     k1, k2, k3, k4, k5, k6 = st.columns(6, gap="small")
     with k1:
-        simple_metric_card("Текущая цена", fmt_number(price_ref.value, price_decimals))
+        trade_date = (
+            pd.Timestamp(contract_row.get("tradedate")).strftime("%d.%m.%Y")
+            if contract_row is not None and pd.notna(contract_row.get("tradedate"))
+            else "—"
+        )
+        price_source = price_ref.field.upper() if price_ref.field else "Нет цены"
+        simple_metric_card(
+            "Цена ISS", fmt_number(price_ref.value, price_decimals),
+            subvalue=f"{price_source} · дата торгов {trade_date}",
+        )
     with k2:
         simple_metric_card("Стоимость контракта", fmt_compact_rub(current_contract_value))
     with k3:
@@ -3003,7 +3020,7 @@ if active_page == "Калькулятор ГО":
     s1, s2, s3 = st.columns(3)
     with s1:
         metric_card(
-            "Расчётное ГО", fmt_rub(calculator_position_margin.total_margin_rub),
+            "Оценка ГО", fmt_rub(calculator_position_margin.total_margin_rub),
             "Аналитическая оценка простой позиции", code="TOTAL MARGIN",
             tone="green" if calculator_position_margin.error is None else "neutral",
         )
