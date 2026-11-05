@@ -25,7 +25,7 @@ from services.contracts import (
 )
 from services.loaders import read_moex_iss_json
 
-TARGETS = ("AI92", "RTS", "Si", "CNY")
+TARGETS = ("AI92", "RTS", "Si", "CNY", "1MFR")
 RMS_URL = "https://iss.moex.com/iss/rms/engines/futures/objects/limits.json"
 PRICE_FIELDS = ("last", "settleprice", "lastsettleprice", "prevsettleprice")
 RISK_FIELDS = ("mr1", "mr2", "mr3", "lk1", "lk2")
