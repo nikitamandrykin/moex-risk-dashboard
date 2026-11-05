@@ -1,4 +1,4 @@
-"""Offline integration smoke: public navigation and empty search."""
+"""Offline integration smoke: public navigation and customer-mode visibility."""
 import os
 from time import time
 from unittest.mock import patch
@@ -21,10 +21,10 @@ app.session_state['_collateral_bundle_v11'] = (empty, status, empty, status)
 with patch('requests.get', side_effect=AssertionError('Unexpected network request')):
     app.run()
     assert not app.exception, app.exception
-    app.text_input(key='monitor_search').set_value('no such instrument').run()
-    assert not app.exception, app.exception
-    assert any('ничего не найдено' in item.value for item in app.info)
-    for page in ['Обзор', 'Границы', 'Калькулятор ГО', 'Спецрежимы НКЦ', 'Методика', 'Мониторинг']:
+    assert app.session_state['active_page'] == 'Обзор'
+    assert all('Состояние источников, обновление и диагностика' != exp.label
+               for exp in app.expander)
+    for page in ['Обзор', 'Границы', 'Калькулятор ГО', 'Спецрежимы НКЦ', 'Методика']:
         app.segmented_control(key='active_page').set_value(page).run()
         assert not app.exception, (page, app.exception)
-print('Offline public UI: search, empty results and all six pages OK')
+print('Offline public UI: five published pages, private diagnostics hidden OK')
