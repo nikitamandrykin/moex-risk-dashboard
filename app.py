@@ -882,7 +882,9 @@ def metric_card(
         classes += f" {html.escape(tone)}"
     if compact:
         classes += " compact"
-    code_html = f'<div class="metric-code">{html.escape(code)}</div>' if code else ""
+    # Long internal field names live in Methodology rather than distracting
+    # end users on every metric card.
+    code_html = f'<div class="metric-code">{html.escape(code)}</div>' if code and len(code) <= 12 else ""
     note_html = f'<div class="metric-note">{html.escape(note)}</div>' if note else ""
     st.markdown(
         f"""
@@ -904,7 +906,7 @@ def simple_metric_card(
     code: str = "",
     subvalue: str = "",
 ) -> None:
-    code_html = f'<div class="simple-card-code">{html.escape(code)}</div>' if code else ""
+    code_html = f'<div class="simple-card-code">{html.escape(code)}</div>' if code and len(code) <= 12 else ""
     subvalue_html = (
         f'<div class="simple-card-subvalue">{html.escape(subvalue)}</div>'
         if subvalue else ""
