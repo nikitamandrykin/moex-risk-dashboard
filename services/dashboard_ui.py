@@ -296,4 +296,60 @@ def dashboard_styles():
       .kpi-value { font-size:1.4rem !important; white-space:normal; }
       .section-head { margin-top:.8rem !important; }
     }
+    /* Consistent typography across every data/parameter/risk card. */
+    .simple-card, .metric-card, .kpi-card, .parameter-item,
+    .risk-ladder-step, .risk-ladder-threshold, .monitor-step,
+    .corridor-card, .corridor-insight, .calc-hero, .selection-compact,
+    .monitor-corridor, .parameter-reference-item {
+      font-family: "Source Sans 3", "Source Sans Pro", "Segoe UI", Arial, sans-serif !important;
+      font-kerning:normal;
+    }
+    .simple-card-label, .metric-label, .kpi-label, .parameter-label,
+    .corridor-edge-label, .corridor-insight-label, .monitor-step-title,
+    .risk-ladder-code, .risk-ladder-note {
+      font-family:inherit !important;
+      font-size:.78rem !important;
+      line-height:1.35 !important;
+      font-weight:600 !important;
+      color:#475467 !important;
+      letter-spacing:0 !important;
+    }
+    .simple-card-value, .metric-value, .kpi-value, .parameter-value,
+    .corridor-edge-value, .corridor-insight-value,
+    .monitor-step-value, .risk-ladder-value,
+    .risk-ladder-threshold .risk-ladder-value {
+      font-family:inherit !important;
+      font-size:1.42rem !important;
+      font-weight:750 !important;
+      line-height:1.18 !important;
+      letter-spacing:-.025em !important;
+      font-variant-numeric:tabular-nums !important;
+      color:#101828 !important;
+      white-space:normal !important;
+      overflow-wrap:anywhere !important;
+    }
+    .simple-card-code, .metric-code, .parameter-code, .risk-ladder-code {
+      font-family:inherit !important;
+      font-size:.66rem !important;
+      line-height:1.3 !important;
+      font-weight:650 !important;
+      letter-spacing:.03em !important;
+    }
+    .metric-card, .simple-card, .kpi-card, .parameter-item,
+    .risk-ladder-step, .risk-ladder-threshold, .monitor-step {
+      box-shadow:none !important;
+      min-width:0 !important;
+    }
+    .simple-card-subvalue, .metric-note, .kpi-meta {
+      font-family:inherit !important;
+      font-size:.75rem !important;
+      line-height:1.35 !important;
+    }
+    @media(max-width:650px) {
+      .simple-card-value, .metric-value, .kpi-value, .parameter-value,
+      .corridor-edge-value, .corridor-insight-value, .monitor-step-value,
+      .risk-ladder-value, .risk-ladder-threshold .risk-ladder-value {
+        font-size:1.26rem !important;
+      }
+    }
     </style>"""
