@@ -1575,53 +1575,58 @@ if source_error:
 elif source_snapshot_count:
     st.warning("Часть показателей получена из кеша или резервных файлов. Проверьте даты источников.")
 
-with st.expander("Состояние источников, обновление и диагностика", expanded=False):
-    st.markdown(source_health_html(source_statuses, source_fetched_at, time()), unsafe_allow_html=True)
-    st.caption(f"ISS: {contracts_status.updated_at or '—'} · MR/LK: {market_status.updated_at or '—'}")
-    st.button("Обновить данные", icon="🔄", on_click=refresh_data)
-    st.markdown(
-        '<div class="status-row">'
-        + status_chip(market_status)
-        + status_chip(static_status)
-        + status_chip(offdays_status)
-        + status_chip(extra_status)
-        + status_chip(contracts_status)
-        + status_chip(special_calendar_status)
-        + "</div>",
-        unsafe_allow_html=True,
-    )
-    source_state_labels = {
-        "live": "Получен ответ API/URL",
-        "upload": "Ручная загрузка",
-        "cache": "Последний успешный снимок",
-        "fallback": "Встроенный fallback",
-        "manual": "Сохранённый ручной файл",
-        "missing": "Нет источника",
-        "error": "Ошибка",
-    }
-    st.dataframe(
-        pd.DataFrame(
-            [
-                {
-                    "Набор данных": status.name,
-                    "Статус": source_state_labels.get(status.state, status.state),
-                    "Последнее обновление / снимок": status.updated_at or "—",
-                    "Источник / причина": status.detail,
-                }
-                for status in source_statuses
-            ]
-        ),
-        width="stretch",
-        hide_index=True,
-    )
-    st.caption(
-        "Новый ответ заменяет last-good кеш только после успешного разбора и проверки обязательных колонок. "
-        "Пустой ответ, HTTP-ошибка или невалидный ручной файл не затирают подтверждённый снимок."
-    )
+# Detailed source diagnostics are available only to the maintainer in private
+# mode; the public dashboard keeps the brief source-state indicator above.
+if not PUBLIC_DEPLOYMENT:
+    with st.expander("Состояние источников, обновление и диагностика", expanded=False):
+        st.markdown(source_health_html(source_statuses, source_fetched_at, time()), unsafe_allow_html=True)
+        st.caption(f"ISS: {contracts_status.updated_at or '—'} · MR/LK: {market_status.updated_at or '—'}")
+        st.button("Обновить данные", icon="🔄", on_click=refresh_data)
+        st.markdown(
+            '<div class="status-row">'
+            + status_chip(market_status)
+            + status_chip(static_status)
+            + status_chip(offdays_status)
+            + status_chip(extra_status)
+            + status_chip(contracts_status)
+            + status_chip(special_calendar_status)
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+        source_state_labels = {
+            "live": "Получен ответ API/URL",
+            "upload": "Ручная загрузка",
+            "cache": "Последний успешный снимок",
+            "fallback": "Встроенный fallback",
+            "manual": "Сохранённый ручной файл",
+            "missing": "Нет источника",
+            "error": "Ошибка",
+        }
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Набор данных": status.name,
+                        "Статус": source_state_labels.get(status.state, status.state),
+                        "Последнее обновление / снимок": status.updated_at or "—",
+                        "Источник / причина": status.detail,
+                    }
+                    for status in source_statuses
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        st.caption(
+            "Новый ответ заменяет last-good кеш только после успешного разбора и проверки обязательных колонок. "
+            "Пустой ответ, HTTP-ошибка или невалидный ручной файл не затирают подтверждённый снимок."
+        )
 
-NAV_PAGES = ["Мониторинг", "Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]
+# Temporarily keep Risk Radar source available for further development, but do
+# not publish it in the customer-facing navigation until reviewed.
+NAV_PAGES = ["Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]
 if st.session_state.get("active_page") not in NAV_PAGES:
-    st.session_state["active_page"] = "Мониторинг"
+    st.session_state["active_page"] = "Обзор"
 active_page = st.segmented_control(
     "Разделы",
     NAV_PAGES,
