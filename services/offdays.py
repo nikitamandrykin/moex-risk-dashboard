@@ -263,9 +263,10 @@ def supplement_offdays_with_published_values(
         result["offdays_source"] = ""
     if "offdays_source_url" not in result.columns:
         result["offdays_source_url"] = ""
-    keys = result["assetcode"].astype(str).str.strip().str.upper()
     for code, published_value in PUBLISHED_OFFDAYS_VALUES.items():
-        matching = keys.eq(code)
+        # Recalculate against the growing frame: rows are appended for codes
+        # absent from the older NCC workbook.
+        matching = result["assetcode"].astype(str).str.strip().str.upper().eq(code)
         current = pd.to_numeric(result.loc[matching, field], errors="coerce")
         if current.notna().any():
             continue
