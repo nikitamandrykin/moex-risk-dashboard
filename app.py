@@ -17,7 +17,6 @@ from services.data_freshness import (
     SNAPSHOT_TTL_SECONDS,
     AUTO_REFRESH_POLL_SECONDS,
     snapshot_expired,
-    fetched_at_label,
 )
 from services.loaders import (
     SourceStatus,
@@ -1544,40 +1543,17 @@ source_statuses = [
     extra_status, special_calendar_status,
 ]
 source_error = any(status.state in {"error", "missing"} for status in source_statuses)
-source_all_live = all(status.state == "live" for status in source_statuses)
-source_live_count = sum(status.state == "live" for status in source_statuses)
-source_available_count = sum(status.state not in {"error", "missing"} for status in source_statuses)
 source_snapshot_count = sum(status.state in {"cache", "fallback", "manual", "upload"} for status in source_statuses)
-source_dot = "error" if source_error else ""
-source_label = "DATA ERROR" if source_error else ("DATA LIVE" if source_all_live else "DATA READY")
-source_meta_parts = [
-    f"{source_available_count}/{len(source_statuses)} наборов доступны",
-    f"{source_live_count} live",
-]
-if source_snapshot_count:
-    source_meta_parts.append(f"{source_snapshot_count} из снимка/кеша")
-source_meta = " · ".join(source_meta_parts)
 st.markdown(dashboard_styles(), unsafe_allow_html=True)
-source_summary_kind = "source-alert" if source_error else ("source-fallback" if source_snapshot_count else "source-live")
-source_summary_label = (
-    "Есть ошибки источников" if source_error
-    else ("Часть данных резервная" if source_snapshot_count else "Источники отвечают")
-)
-st.markdown(
-    f'<div class="source-summary {source_summary_kind}">'
-    f'<span class="source-summary-status">{html.escape(source_summary_label)}</span>'
-    f'<span class="source-summary-meta">{source_live_count}/{len(source_statuses)} API'
-    f' · {html.escape(fetched_at_label(source_fetched_at))}</span>'
-    '</div>',
-    unsafe_allow_html=True,
-)
+# The source-status banner is intentionally hidden in production.
+# Keep explicit warning messages when a source fails or fallback data is used.
 if source_error:
-    st.error("Некоторые наборы данных недоступны. Откройте «Состояние источников» для проверки.")
+    st.error("Некоторые источники данных недоступны. Часть показателей может отсутствовать.")
 elif source_snapshot_count:
     st.warning("Часть показателей получена из кеша или резервных файлов. Проверьте даты источников.")
 
 # Detailed source diagnostics are available only to the maintainer in private
-# mode; the public dashboard keeps the brief source-state indicator above.
+# mode; the public dashboard shows warnings only when data is degraded.
 if not PUBLIC_DEPLOYMENT:
     with st.expander("Состояние источников, обновление и диагностика", expanded=False):
         st.markdown(source_health_html(source_statuses, source_fetched_at, time()), unsafe_allow_html=True)
