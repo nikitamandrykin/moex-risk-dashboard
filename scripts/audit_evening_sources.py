@@ -50,9 +50,11 @@ def main():
             timeout=15,attempts=1,accept="application/javascript,*/*"
         ).decode("utf-8",errors="replace")
         print("DERIVATIVE STATIC PARAMS JS SIZE",len(js),flush=True)
-        for index,line in enumerate(js.splitlines(),1):
-            lower=line.lower()
-            if any(kw in lower for kw in ("api/", "http", "endpoint", "export","download","\.csv", "url:", "get(", "post(", "xlsx", "params/")):
-                print("NCC JS",index,line.strip()[:500],flush=True)
+        import re
+        for keyword in ("getAssets", "getRates", "getStatic", "export", "csv", "derivativesStaticParams/", "api/v1/", "api/v2/", "axios", "url:"):
+            matches = list(re.finditer(re.escape(keyword), js, re.IGNORECASE))
+            print("JS KEYWORD",keyword,"COUNT",len(matches),flush=True)
+            for m in matches[:10]:
+                print("JS EXCERPT",keyword, repr(js[max(0,m.start()-150):m.end()+200])[:450],flush=True)
     except Exception as e:print("LIVE NCC SCRIPT ERROR",repr(e),flush=True)
 if __name__=="__main__":main()
