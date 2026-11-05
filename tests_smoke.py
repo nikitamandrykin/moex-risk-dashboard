@@ -115,6 +115,31 @@ contracts_df = read_forts_payload(sample_iss)
 assert len(contracts_df) == 1
 rts_contracts = contracts_for_asset(contracts_df, "RTS", today=pd.Timestamp("2026-07-31"))
 assert len(rts_contracts) == 1
+
+# A source may contain only historical futures. They must not be silently
+# resurrected as a valid active series (even when cached or no new series exist).
+historical_only = pd.DataFrame([
+    {"assetcode": "AI92", "secid": "AI92U6",
+     "lasttradedate": pd.Timestamp("2026-09-15"), "last": 123.0},
+])
+assert contracts_for_asset(
+    historical_only, "AI92", today=pd.Timestamp("2026-11-05")
+).empty
+mixed_expiry = pd.concat([
+    historical_only,
+    pd.DataFrame([
+        {"assetcode": "AI92", "secid": "AI92Z6",
+         "lasttradedate": pd.Timestamp("2026-12-15"), "last": 125.0},
+    ]),
+], ignore_index=True)
+active_only = contracts_for_asset(mixed_expiry, "AI92", today=pd.Timestamp("2026-11-05"))
+assert active_only["secid"].tolist() == ["AI92Z6"]
+assert contracts_for_asset(
+    mixed_expiry, "AI92", today=pd.Timestamp("2027-01-01")
+).empty
+assert contracts_for_asset(
+    mixed_expiry, "1MFR", today=pd.Timestamp("2026-11-05")
+).empty
 contract = rts_contracts.iloc[0]
 price_ref = reference_price(contract)
 assert price_ref.field == "last" and price_ref.value == 88780
