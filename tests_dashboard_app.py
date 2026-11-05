@@ -52,7 +52,7 @@ with patch('requests.get', side_effect=AssertionError('Unexpected network reques
     assert not app.exception, app.exception
     assert app.session_state['selected_assetcode'] == 'AI92'
     assert app.selectbox(key='_selected_contract_widget_AI92').value == 'AI92Z6'
-    selection_cards = [m.value for m in app.markdown if 'selection-compact' in m.value]
+    selection_cards = [m.value for m in app.markdown if '<div class="selection-compact">' in m.value]
     assert len(selection_cards) == 1 and 'AI92Z6' in selection_cards[0], (
         f"AI92 selection render: {selection_cards!r}; "
         f"asset={app.session_state['selected_assetcode']!r}; "
@@ -63,7 +63,7 @@ with patch('requests.get', side_effect=AssertionError('Unexpected network reques
     assert not app.exception, app.exception
     assert app.session_state['selected_assetcode'] == '1MFR'
     assert app.selectbox(key='_selected_contract_widget_1MFR').value == '1MFRZ6'
-    selection_cards = [m.value for m in app.markdown if 'selection-compact' in m.value]
+    selection_cards = [m.value for m in app.markdown if '<div class="selection-compact">' in m.value]
     assert len(selection_cards) == 1
     assert '1MFRZ6' in selection_cards[0] and 'AI92Z6' not in selection_cards[0]
 
