@@ -43,7 +43,7 @@ from services.formatters import (
     fmt_compact_rub,
     is_missing,
 )
-from services.offdays import load_offdays_dataset
+from services.offdays import load_offdays_dataset, supplement_offdays_with_published_values
 from services.evening import load_evening_dataset
 from services.boundaries import (
     estimate_morning_limits,
@@ -1496,6 +1496,11 @@ if special_calendar_upload is not None:
         manual_path=BASE_DIR / "runtime_cache" / "special_risk_calendar_manual.xlsx",
     )
 
+# The NCC workbook still linked from the public catalogue predates newly
+# listed US-share perpetuals. Fill only genuinely missing weekend settings
+# from the dated official September announcement; keep the raw source intact.
+offdays_df = supplement_offdays_with_published_values(offdays_df)
+
 def refresh_data() -> None:
     # Всегда обновляем снимок текущей browser-сессии. В публичном deployment
     # не очищаем глобальный st.cache_data: это защищает MOEX/NCC от лишних
@@ -2306,6 +2311,7 @@ range_fut, range_fut_override = special_override(
 
 # Morning currency bounds use the same official parameter that NCC publishes
 # for weekend trading. The dedicated OffDays XLSX is the primary source.
+weekend_shift_source = cell_text(offdays_row.get("offdays_source")) if offdays_row is not None else ""
 weekend_shift = None
 if offdays_row is not None and not is_missing(offdays_row.get("offdaystradingpricerangeshift")):
     weekend_shift = offdays_row.get("offdaystradingpricerangeshift")
@@ -2448,9 +2454,10 @@ if active_page == "Обзор":
     offdays_col, _ = st.columns([1, 3], gap="small")
     with offdays_col:
         simple_metric_card(
-            "Сдвиг на выходные",
+            "Ширина ценового коридора в выходные",
             fmt_rate(weekend_shift),
             code="OffDaysTradingPriceRangeShift",
+            subvalue=weekend_shift_source,
         )
 
     st.markdown(
@@ -2714,7 +2721,10 @@ if active_page == "Границы":
     )
     wh1, wh2, wh3, wh4 = st.columns(4, gap="small")
     with wh1:
-        simple_metric_card("Сдвиг на выходные", fmt_rate(weekend_shift), code="OffDaysTradingPriceRangeShift")
+        simple_metric_card(
+            "Ширина ценового коридора в выходные", fmt_rate(weekend_shift),
+            code="OffDaysTradingPriceRangeShift", subvalue=weekend_shift_source,
+        )
     with wh2:
         simple_metric_card("База расчёта", fmt_number(weekend_ref.value, price_decimals))
     with wh3:
@@ -2731,7 +2741,7 @@ if active_page == "Границы":
         )
         mo1, mo2, mo3, mo4 = st.columns(4, gap="small")
         with mo1:
-            simple_metric_card("Сдвиг", fmt_rate(weekend_shift), code="OffDaysTradingPriceRangeShift")
+            simple_metric_card("Ширина коридора выходных", fmt_rate(weekend_shift), code="OffDaysTradingPriceRangeShift")
         with mo2:
             simple_metric_card("База расчёта", fmt_number(morning_ref.value, price_decimals))
         with mo3:
