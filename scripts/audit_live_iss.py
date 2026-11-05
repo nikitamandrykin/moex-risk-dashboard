@@ -99,7 +99,14 @@ def run():
         risk_row = next((r for r in limits_raw if str(r.get("assetcode", "")).upper() == key), None)
         normalized = rates.loc[rates["assetcode"].astype(str).str.upper().eq(key)]
         if risk_row is None or normalized.empty:
-            missing.append(f"{asset}: MR/LK not present in response")
+            active_without_rates = contracts_for_asset(
+                futures, asset, today=pd.Timestamp(msk_now.date())
+            )
+            reported = active_without_rates["secid"].astype(str).head(5).tolist() if not active_without_rates.empty else []
+            missing.append(
+                f"{asset}: MR/LK not present in response; "
+                f"active ISS futures {reported if reported else 'NONE'}"
+            )
             continue
         parsed_risk = normalized.iloc[-1]
         for fld in RISK_FIELDS:
