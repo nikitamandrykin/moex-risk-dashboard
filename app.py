@@ -1548,11 +1548,18 @@ if source_snapshot_count:
     source_meta_parts.append(f"{source_snapshot_count} из снимка/кеша")
 source_meta = " · ".join(source_meta_parts)
 st.markdown(dashboard_styles(), unsafe_allow_html=True)
-st.caption(
-    f"Источники · {source_live_count}/{len(source_statuses)} ответили через API · "
-    f"{source_snapshot_count} сохранённых/ручных наборов · "
-    f"снимок получен {fetched_at_label(source_fetched_at)}. "
-    "Ответ API не гарантирует свежесть сделки."
+source_summary_kind = "source-alert" if source_error else ("source-fallback" if source_snapshot_count else "source-live")
+source_summary_label = (
+    "Есть ошибки источников" if source_error
+    else ("Часть данных резервная" if source_snapshot_count else "Источники отвечают")
+)
+st.markdown(
+    f'<div class="source-summary {source_summary_kind}">'
+    f'<span class="source-summary-status">{html.escape(source_summary_label)}</span>'
+    f'<span class="source-summary-meta">{source_live_count}/{len(source_statuses)} API'
+    f' · {html.escape(fetched_at_label(source_fetched_at))}</span>'
+    '</div>',
+    unsafe_allow_html=True,
 )
 if source_error:
     st.error("Некоторые наборы данных недоступны. Откройте «Состояние источников» для проверки.")
@@ -1606,8 +1613,15 @@ with st.expander("Состояние источников, обновление 
 NAV_PAGES = ["Мониторинг", "Обзор", "Границы", "Калькулятор ГО", "Спецрежимы НКЦ", "Методика"]
 if st.session_state.get("active_page") not in NAV_PAGES:
     st.session_state["active_page"] = "Мониторинг"
-active_page = st.radio(
-    "Раздел", NAV_PAGES, horizontal=True, key="active_page", label_visibility="collapsed"
+active_page = st.segmented_control(
+    "Разделы",
+    NAV_PAGES,
+    key="active_page",
+    selection_mode="single",
+    required=True,
+    width="stretch",
+    wrap=True,
+    label_visibility="collapsed",
 )
 
 security_collateral_df = pd.DataFrame()
@@ -1774,11 +1788,18 @@ if active_page == "Мониторинг":
     last_count = int((monitor_scope["price_source"] == "last").sum())
     settle_count = int((monitor_scope["price_source"] == "settleprice").sum())
     reserve_count = int(monitor_scope["price_source"].isin({"lastsettleprice", "prevsettleprice"}).sum())
-    st.caption(
-        f"Среди требующих внимания: HIGH — {high_attention} · LOW — {low_attention} · ↔ равноудалены — {center_attention}. "
-        f"Источники цены в текущем фильтре: LAST — {last_count} · SETTLE — {settle_count} · резервные — {reserve_count}. "
-        "↔ равноудалённость не означает низкий риск: при узком коридоре обе границы могут быть близко."
-    )
+    with st.expander("Как читать сигналы и источники цен", expanded=False):
+        st.write(
+            f"Внимание у HIGH: {high_attention} · у LOW: {low_attention} · "
+            f"равноудалены: {center_attention}. "
+            f"Источники цен: LAST — {last_count} · SETTLE — {settle_count} · "
+            f"резервные — {reserve_count}."
+        )
+        st.write(
+            "WATCH и CRITICAL — аналитические пороги близости к границам, "
+            "не параметры НКЦ. Равноудалённость не означает отсутствие риска. "
+            "Данные LAST могут относиться к более ранней сделке."
+        )
 
     search_col, detail_col = st.columns([3, 1], gap="medium")
     with search_col:
@@ -1804,7 +1825,7 @@ if active_page == "Мониторинг":
         )
         filtered_monitor = filtered_monitor[matched]
 
-    st.caption(f"Показано {len(filtered_monitor)} из {len(monitor_scope)} инструментов · выберите строку для истории и карточки")
+    st.caption(f"Найдено {len(filtered_monitor)} из {len(monitor_scope)} · выберите контракт в таблице")
     if filtered_monitor.empty:
         st.info("По выбранным фильтрам ничего не найдено. Измените поиск или условия отбора.")
     missing_count = int((monitor_scope["risk_status"] == "NO DATA").sum())
