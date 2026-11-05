@@ -1877,13 +1877,35 @@ if active_page == "Мониторинг":
             "До ближайшей, %", "Положение, %",
         ]]
     else:
-        st.caption("TRADEDATE — дата торговых данных ISS, SYSTIME — время серверной записи ISS. "
-                   "Ни то ни другое не гарантирует дату последней сделки.")
+        with st.expander("Пояснение временных полей ISS", expanded=False):
+            st.write("TRADEDATE — дата торговых данных, SYSTIME — серверное время записи. "
+                     "Они не гарантируют время последней сделки.")
+
+    # Limit each rendered table to one screenful, avoiding nested vertical
+    # scrolling that traps mouse-wheel events. Selection stays page-relative.
+    monitor_page_size = 16
+    monitor_total_pages = max(1, (len(display) + monitor_page_size - 1) // monitor_page_size)
+    if st.session_state.get("monitor_page") not in range(1, monitor_total_pages + 1):
+        st.session_state["monitor_page"] = 1
+    if monitor_total_pages > 1:
+        pager_info, pager_control = st.columns([4, 1.1], gap="medium", vertical_alignment="bottom")
+        with pager_info:
+            st.caption(f"Всего {len(display)} контрактов · по {monitor_page_size} на странице")
+        with pager_control:
+            monitor_page = st.selectbox(
+                "Страница", range(1, monitor_total_pages + 1),
+                key="monitor_page", format_func=lambda page: f"{page} / {monitor_total_pages}",
+            )
+    else:
+        monitor_page = 1
+    start_row = (monitor_page - 1) * monitor_page_size
+    visible_display = display.iloc[start_row:start_row + monitor_page_size].reset_index(drop=True)
+    visible_table = table.iloc[start_row:start_row + monitor_page_size].reset_index(drop=True)
 
     event = st.dataframe(
-        table, width="stretch", hide_index=True,
-        height=min(650, 86 + 35 * max(1, len(table))),
-        on_select="rerun", selection_mode="single-row", key=selection_key(display, source_fetched_at, attention_threshold),
+        visible_table, width="stretch", hide_index=True,
+        height="content",
+        on_select="rerun", selection_mode="single-row", key=selection_key(visible_display, source_fetched_at, attention_threshold),
         column_config={
             "Цена": st.column_config.NumberColumn(format="%.4f"),
             "LOW": st.column_config.NumberColumn(format="%.4f"),
@@ -1909,8 +1931,8 @@ if active_page == "Мониторинг":
 
     if selected_rows:
         selected_idx = selected_rows[0]
-        if 0 <= selected_idx < len(display):
-            selected = display.iloc[selected_idx]
+        if 0 <= selected_idx < len(visible_display):
+            selected = visible_display.iloc[selected_idx]
             live_distance = _as_float(selected.get("nearest_pct"))
             live_side = str(selected.get("nearest_side") or "—")
             selected_source = price_source_labels.get(str(selected.get("price_source") or ""), "—")
