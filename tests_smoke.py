@@ -4,7 +4,7 @@ import tempfile
 import pandas as pd
 
 from services.loaders import latest_row, read_ncc_csv, read_ncc_xlsx
-from services.offdays import read_offdays_fallback
+from services.offdays import read_offdays_fallback, supplement_offdays_with_published_values
 from services.formatters import fmt_compact_rub, weekend_range_details
 
 base = Path(__file__).parent
@@ -25,6 +25,38 @@ assert len(offdays_df) > 100
 rts_offdays = latest_row(offdays_df, "RTS")
 assert rts_offdays is not None
 assert abs(float(rts_offdays["offdaystradingpricerangeshift"]) - 0.03) < 1e-12
+
+# 17.07.2026 NCC workbook predates the September listing of APPF and
+# other US-share perpetual futures. The published 18.09.2026 values fill
+# genuinely missing cells but never overwrite an explicit live worksheet row.
+source_fixture = pd.DataFrame([
+    {"assetcode": "RTS", "offdaystradingpricerangeshift": 0.03},
+    {"assetcode": "TSLAF", "offdaystradingpricerangeshift": float("nan")},
+    {"assetcode": "APPF", "offdaystradingpricerangeshift": float("nan")},
+])
+not_yet_effective = supplement_offdays_with_published_values(
+    source_fixture, asof=pd.Timestamp("2026-09-17")
+)
+assert not_yet_effective["offdaystradingpricerangeshift"].isna().sum() == 2
+supplemented = supplement_offdays_with_published_values(
+    source_fixture, asof=pd.Timestamp("2026-11-05")
+)
+assert float(latest_row(supplemented, "APPF")["offdaystradingpricerangeshift"]) == 1.0
+assert float(latest_row(supplemented, "TSLAF")["offdaystradingpricerangeshift"]) == 1.0
+assert float(latest_row(supplemented, "AMDF")["offdaystradingpricerangeshift"]) == 1.0
+assert abs(float(latest_row(supplemented, "RTS")["offdaystradingpricerangeshift"]) - .03) < 1e-12
+assert "17.09.2026" in latest_row(supplemented, "APPF")["offdays_source"]
+assert len(source_fixture) == 3 and source_fixture.iloc[1]["offdaystradingpricerangeshift"] != 1
+assert len(supplement_offdays_with_published_values(supplemented, asof=pd.Timestamp("2026-11-05"))) == len(supplemented)
+newer_official = pd.DataFrame([
+    {"assetcode": "APPF", "offdaystradingpricerangeshift": .05},
+])
+assert float(latest_row(supplement_offdays_with_published_values(
+    newer_official, asof=pd.Timestamp("2026-11-05")
+), "APPF")["offdaystradingpricerangeshift"]) == .05
+assert supplement_offdays_with_published_values(pd.DataFrame(), asof=pd.Timestamp("2026-11-05")).empty
+print("Official announced weekend shifts: backfill only, date-gated, transparent provenance")
+
 
 evening_df = read_ncc_xlsx((base / "data" / "evening_static_params_2026-08-03.xlsx").read_bytes())
 assert len(evening_df) == 194
