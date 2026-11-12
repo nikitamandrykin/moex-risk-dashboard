@@ -65,6 +65,24 @@ assert int((evening_df["autoshiftnummrevg"] == 2).sum()) == 24
 assert int((evening_df["autoshiftnummrevg"] == 0).sum()) == 134
 assert "futmontimeevg" in evening_df.columns
 
+# NCC current evening-session workbook, collected on 12.11.2026 (265 БА).
+# The old August workbook above is retained as a historical parser fixture.
+evening_latest = read_ncc_csv(
+    (base / "data" / "evening_static_params_2026-11-12.csv").read_bytes()
+)
+assert len(evening_latest) == 265
+assert evening_latest["assetcode"].nunique() == 265
+assert evening_latest[["autoshiftnummrevg", "futmontimeevg"]].notna().all().all()
+for key in ("APPF", "AMDF", "TSLAF", "AMZNF", "NFLXF", "NBISF", "HOODF"):
+    row = latest_row(evening_latest, key)
+    assert row is not None and row["autoshiftnummrevg"] == 5
+    assert row["futmontimeevg"] == 180
+for key, expected in (("RAGR", 0), ("ASTRM", 0), ("KEYRATE", 2)):
+    row = latest_row(evening_latest, key)
+    assert row is not None and row["autoshiftnummrevg"] == expected
+    assert row["futmontimeevg"] == 180
+print("Latest 265-underlying NCC evening workbook: new US futures and distinct RAGR/KEYRATE values OK")
+
 br_evening = latest_row(evening_df, "BR")
 africa_evening = latest_row(evening_df, "AFRICA")
 rts_evening = latest_row(evening_df, "RTS")

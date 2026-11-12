@@ -1220,8 +1220,8 @@ def load_from_config() -> tuple[pd.DataFrame, SourceStatus, pd.DataFrame, Source
         alternate_urls=[STATIC_PARAMS_CSV_URL],
     )
     extra, extra_status = load_evening_dataset(
-        fallback_path=DATA_DIR / "evening_static_params_2026-08-03.xlsx",
-        cache_path=BASE_DIR / "runtime_cache" / "evening_params_last_good.csv",
+        fallback_path=DATA_DIR / "evening_static_params_2026-11-12.csv",
+        cache_path=BASE_DIR / "runtime_cache" / "evening_params_last_good_2026_11.csv",
         manual_path=BASE_DIR / "runtime_cache" / "evening_params_manual.csv",
     )
     return market, market_status, static, static_status, extra, extra_status
@@ -1301,8 +1301,8 @@ def load_all_sources_cached():
             alternate_urls=[STATIC_PARAMS_CSV_URL],
         ),
         "evening": lambda: load_evening_dataset(
-            fallback_path=DATA_DIR / "evening_static_params_2026-08-03.xlsx",
-            cache_path=BASE_DIR / "runtime_cache" / "evening_params_last_good.csv",
+            fallback_path=DATA_DIR / "evening_static_params_2026-11-12.csv",
+            cache_path=BASE_DIR / "runtime_cache" / "evening_params_last_good_2026_11.csv",
             manual_path=BASE_DIR / "runtime_cache" / "evening_params_manual.csv",
         ),
         "offdays": lambda: load_offdays_dataset(
@@ -1483,8 +1483,8 @@ if static_upload is not None:
     )
 if extra_upload is not None:
     extra_df, extra_status = load_evening_dataset(
-        fallback_path=DATA_DIR / "evening_static_params_2026-08-03.xlsx",
-        cache_path=BASE_DIR / "runtime_cache" / "evening_params_last_good.csv",
+        fallback_path=DATA_DIR / "evening_static_params_2026-11-12.csv",
+        cache_path=BASE_DIR / "runtime_cache" / "evening_params_last_good_2026_11.csv",
         manual_path=BASE_DIR / "runtime_cache" / "evening_params_manual.csv",
         uploaded_file=extra_upload,
     )

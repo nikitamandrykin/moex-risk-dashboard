@@ -15,11 +15,9 @@ from .loaders import SourceStatus, load_dataset
 
 CATALOG_URL = "https://www.nationalclearingcentre.ru/catalog/030902"
 LINK_TEXT_MARKER = "Статические параметры, применяемые в вечернюю сессию"
-DEFAULT_XLSX_URL = (
-    "https://www.nationalclearingcentre.ru/connector?cmd=file&"
-    "target=A_XNCa0YDQsNGB0LDQstC40L1cZGVyaXZhdGl2ZXNTdGF0aWNQYXJhbXMtMDNfMDhfMjAyNi54bHN4&"
-    "_t=1785751902"
-)
+# Published by NCC on 12 November 2026; catalog discovery remains primary.
+# This connector URL is used when the official catalog cannot be reached.
+DEFAULT_XLSX_URL = "https://www.nationalclearingcentre.ru/connector?cmd=file&target=B_XNCj0L_SRgNCw0LLQu9C10L3QuNC1INGA0LjRgdC60LDQvNC4XNCh0YDQvtGH0L3Ri9C5INCg0YvQvdC_P0Lpc0KDQuNGB0Lot0L_SQsNGA0LDQvNC10YLRgNGLXFNDLTYzNDI4OFzQodGC0LDRgtC40YfQtdGB0LrQuNC1INC_S0LDRgNCw0LzQtdGC0YDRiywg0L_SRgNC40LzQtdC90Y_SQtdC80YvQtSDQsiDQstC10YfQtdGA0L3RjtGOINGB0LXRgdGB0LjRji54bHN4&_t=1794474395"
 
 
 class _LinkCollector(HTMLParser):
