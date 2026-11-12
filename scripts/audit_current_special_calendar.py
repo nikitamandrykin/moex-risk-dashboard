@@ -11,6 +11,17 @@ def main():
     print("OFFICIAL NCC CALENDAR",url,flush=True)
     payload=fetch_url(url,timeout=25,attempts=2,referer="https://www.nationalclearingcentre.ru/catalog/030902")
     print("XLSX SIZE",len(payload),flush=True)
+    from zipfile import ZipFile
+    from io import BytesIO
+    with ZipFile(BytesIO(payload)) as zf:
+        content = "\\n".join(
+            zf.read(name).decode("utf-8",errors="replace")
+            for name in zf.namelist()
+            if name.startswith("xl/worksheets/") or name=="xl/sharedStrings.xml"
+        ).upper()
+        for code in CODES:
+            print("RAW XLSX CODE",code, "PRESENT" if code.upper() in content else "ABSENT",flush=True)
+
     try:
         df=read_special_calendar_xlsx(payload)
     except Exception as exc:
