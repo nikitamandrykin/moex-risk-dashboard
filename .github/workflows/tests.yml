@@ -31,6 +31,9 @@ jobs:
         run: python tests_dashboard_v2.py && python tests_dashboard_app.py
       - name: Compile Python files
         run: python -m py_compile streamlit_app.py app.py services/*.py scripts/*.py
+      - name: Audit NCC special risk calendar for new foreign perpetuals
+        if: github.event_name == 'pull_request' && github.head_ref == 'audit/new-futures-special-calendar'
+        run: python -m scripts.audit_current_special_calendar
       - name: Audit updated official NCC evening XLSX
         if: github.event_name == 'pull_request' && github.head_ref == 'fix/ncc-evening-nov2026'
         run: python -m scripts.audit_ncc_evening_nov
