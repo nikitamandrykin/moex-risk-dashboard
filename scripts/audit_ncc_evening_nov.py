@@ -33,5 +33,8 @@ def main():
             print("FOUND",assetcode,subset.iloc[-1].to_dict(),flush=True)
     if "APPF" not in set(frame["assetcode"].astype(str).str.strip().str.upper()):
         raise RuntimeError("Updated source still has no APPF")
+    # Reproducible snapshot used for the app's offline fallback. Only the
+    # same verified DataFrame is exported; raw binary XLSX is never modified.
+    print("NCC_ROWS_JSON=" + frame.to_json(orient="records",force_ascii=False),flush=True)
     print("PASS: Latest official NCC evening Excel contains APPF",flush=True)
 if __name__=="__main__":main()
