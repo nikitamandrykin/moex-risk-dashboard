@@ -46,9 +46,35 @@ with patch('requests.get', side_effect=AssertionError('Unexpected network reques
     assert app.warning, "Fallback fixture must still show a data quality warning"
     assert all('Состояние источников, обновление и диагностика' != exp.label
                for exp in app.expander)
+    # Only five high-signal cards are shown first, instead of repeating
+    # concentration thresholds and leaving a single weekend card on its own.
+    overview_markup = "\n".join(m.value for m in app.markdown)
+    assert overview_markup.count('<div class="simple-card">') == 10, (
+        "Expected five overview cards plus five concentration cards"
+    )
+    assert "Коридор выходных" in overview_markup
+    assert "ГО одного контракта · MR1" in overview_markup
+    assert '<div class="section-title">Торги в выходные дни' not in overview_markup
+
+    # Special sessions: absent calendar data must not be presented as proof
+    # that the instrument has no special sessions.
     for page in ['Обзор', 'Границы', 'Калькулятор ГО', 'Спецрежимы НКЦ', 'Методика']:
         app.segmented_control(key='active_page').set_value(page).run()
         assert not app.exception, (page, app.exception)
+        markup = "\n".join(m.value for m in app.markdown)
+        if page == "Границы":
+            assert "ЦЕНА ISS" in markup  # The date is a Streamlit caption, not a markup card.
+        if page == "Калькулятор ГО":
+            assert "ГО каждой ступени" in markup
+            assert ".metric-card .metric-note" in markup
+            assert "контр. · ставка" in markup
+        if page == "Спецрежимы НКЦ":
+            assert "НЕТ ДАННЫХ" in markup
+        if page == "Методика":
+            assert "parameter-reference-grid" in markup
+            assert ".metric-card .metric-note" not in markup, (
+                "Calculator-specific rules must not leak into the handbook"
+            )
     # Reproduce the observed UI discrepancy: a user switches from AI92 to
     # 1MFR. The contract, price cards and heading must follow the same BA.
     app.segmented_control(key='active_page').set_value('Обзор').run()

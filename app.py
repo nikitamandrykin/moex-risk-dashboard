@@ -1046,7 +1046,7 @@ def price_corridor(low: object, price: object, high: object, width: object, deci
 <div class="corridor-card">
   <div class="corridor-top">
     <div><div class="corridor-edge-label">LOWLIMIT</div><div class="corridor-edge-value">{html.escape(fmt_number(low, decimals))}</div></div>
-    <div style="text-align:center"><div class="corridor-edge-label">ТЕКУЩАЯ ЦЕНА</div><div class="corridor-edge-value">{html.escape(fmt_number(price, decimals))}</div></div>
+    <div style="text-align:center"><div class="corridor-edge-label">ЦЕНА ISS</div><div class="corridor-edge-value">{html.escape(fmt_number(price, decimals))}</div></div>
     <div style="text-align:right"><div class="corridor-edge-label">HIGHLIMIT</div><div class="corridor-edge-value">{html.escape(fmt_number(high, decimals))}</div></div>
   </div>
   <div class="corridor-track"><div class="corridor-marker" style="left:{marker:.2f}%"></div></div>
@@ -1619,6 +1619,59 @@ active_page = st.segmented_control(
     wrap=True,
     label_visibility="collapsed",
 )
+
+# Keep the parameter handbook visually intact. These polish rules apply only
+# to the data-oriented pages; focus-visible remains keyboard accessible.
+if active_page != "Методика":
+    st.markdown(
+        """
+<style>
+[data-testid="stSegmentedControl"] button:focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+[data-testid="stSegmentedControl"] button[aria-pressed="true"],
+[data-testid="stSegmentedControl"] button[aria-selected="true"] {
+  background: #fff1f2 !important;
+  border-color: #e8a0a7 !important;
+  color: #b4232f !important;
+  box-shadow: none !important;
+}
+.section-head {
+  margin-top: .94rem !important;
+  margin-bottom: .42rem !important;
+  padding-bottom: .40rem !important;
+}
+.simple-card {
+  min-height: 92px !important;
+}
+.simple-card-label, .parameter-label {
+  line-height: 1.4 !important;
+}
+@media (max-width: 850px) {
+  .simple-card-value { font-size: 1.3rem !important; }
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+if active_page == "Калькулятор ГО":
+    # In earlier styling all metric-card notes were hidden, which concealed
+    # the per-level margin breakdown from the user.
+    st.markdown(
+        """
+<style>
+.metric-card .metric-note {
+  display: block !important;
+  color: #667085 !important;
+  font-size: .75rem !important;
+  line-height: 1.4 !important;
+  margin-top: .38rem !important;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
 
 security_collateral_df = pd.DataFrame()
 asset_collateral_df = pd.DataFrame()
@@ -2424,7 +2477,10 @@ if active_page == "Обзор":
         '<div class="section-head"><div class="section-title">Основные параметры</div></div>',
         unsafe_allow_html=True,
     )
-    k1, k2, k3, k4, k5, k6 = st.columns(6, gap="small")
+    # Prices and bounds are contract-specific; concentration thresholds appear
+    # once in their own section. A fifth card keeps weekend data in sight
+    # without leaving an otherwise empty full-width row.
+    k1, k2, k3, k4, k5 = st.columns(5, gap="small")
     with k1:
         trade_date = (
             pd.Timestamp(contract_row.get("tradedate")).strftime("%d.%m.%Y")
@@ -2443,21 +2499,10 @@ if active_page == "Обзор":
     with k4:
         simple_metric_card("Верхняя граница", fmt_number(current_high_quote, price_decimals), code="HIGHLIMIT")
     with k5:
-        simple_metric_card("Первый порог", f"{fmt_number(lk1_contracts, 0)} контр.", code="LK1")
-    with k6:
-        simple_metric_card("Второй порог", f"{fmt_number(lk2_contracts, 0)} контр.", code="LK2")
-
-    st.markdown(
-        '<div class="section-head"><div class="section-title">Торги в выходные дни</div></div>',
-        unsafe_allow_html=True,
-    )
-    offdays_col, _ = st.columns([1, 3], gap="small")
-    with offdays_col:
         simple_metric_card(
-            "Ширина ценового коридора в выходные",
+            "Коридор выходных",
             fmt_rate(weekend_shift),
-            code="OffDaysTradingPriceRangeShift",
-            subvalue=weekend_shift_source,
+            subvalue=weekend_shift_source or "Ширина относительно базовой цены",
         )
 
     st.markdown(
@@ -2495,7 +2540,7 @@ if active_page == "Обзор":
         ("MINSTEP", "Минимальный шаг", fmt_number(min_step, 8), ""),
         ("STEPPRICE", "Цена шага", fmt_rub(step_price), ""),
         ("RUB_PER_POINT", "Один пункт", fmt_rub(rub_per_quote_unit), ""),
-        ("LAST_RUB", "Стоимость контракта", fmt_rub(current_contract_value), ""),
+        ("INITIALMARGIN", "ГО одного контракта · MR1", fmt_rub(initial_margin), ""),
     ])
 
     if collateral_row is not None:
@@ -2684,6 +2729,17 @@ if active_page == "Границы":
         unsafe_allow_html=True,
     )
 
+    # The ISS quote may be the last available trade, not a real-time price.
+    bounds_price_date = (
+        pd.Timestamp(contract_row.get("tradedate")).strftime("%d.%m.%Y")
+        if contract_row is not None and pd.notna(contract_row.get("tradedate"))
+        else "—"
+    )
+    bounds_price_field = price_ref.field.upper() if price_ref.field else "цена отсутствует"
+    st.caption(
+        f"{selected_contract or assetcode} · Цена ISS: {bounds_price_field} · "
+        f"Дата торгов: {bounds_price_date}"
+    )
     price_corridor(current_low_quote, price_ref.value, current_high_quote, current_width_quote, price_decimals)
 
     st.markdown(
@@ -2804,10 +2860,19 @@ if active_page == "Спецрежимы НКЦ":
         with state_col:
             metric_card(
                 "Специальный режим действует",
-                "ДА" if not active_rows.empty else "НЕТ",
-                "На выбранный момент времени",
+                (
+                    "НЕТ ДАННЫХ" if special_calendar_df.empty
+                    else "ДА" if not active_rows.empty
+                    else "НЕ УКАЗАН" if not asset_in_calendar
+                    else "НЕТ"
+                ),
+                "По опубликованному календарю НКЦ",
                 code="SPECIAL RISK",
-                tone="amber" if not active_rows.empty else "green",
+                tone=(
+                    "neutral" if special_calendar_df.empty or not asset_in_calendar
+                    else "amber" if not active_rows.empty
+                    else "green"
+                ),
                 compact=True,
             )
         with count_col:
@@ -2845,8 +2910,9 @@ if active_page == "Спецрежимы НКЦ":
                 "Официальный XLSX не загрузился. Откройте «Источники данных и ручная загрузка» и загрузите календарь вручную."
             )
         elif not asset_in_calendar:
-            st.success(
-                f"Для {special_assetcode} в календаре НКЦ на 2026 год специальные режимы не запланированы."
+            st.info(
+                f"Для {special_assetcode} в опубликованном календаре НКЦ на 2026 год "
+                "специальные периоды не указаны."
             )
         elif active_rows.empty:
             st.success(
@@ -3060,20 +3126,20 @@ if active_page == "Калькулятор ГО":
         g1, g2, g3 = st.columns(3)
         with g1:
             metric_card(
-                "MR1 · до LK1", f"{fmt_number(calculator_position_margin.level1_contracts, 0)} контр.",
-                f"Ставка {fmt_rate(mr1)} · ГО {fmt_rub(calculator_position_margin.level1_margin_rub)}",
+                "MR1 · до LK1", fmt_rub(calculator_position_margin.level1_margin_rub),
+                f"{fmt_number(calculator_position_margin.level1_contracts, 0)} контр. · ставка {fmt_rate(mr1)}",
                 code="LEVEL 1", tone="green",
             )
         with g2:
             metric_card(
-                "MR2 · превышение LK1", f"{fmt_number(calculator_position_margin.level2_contracts, 0)} контр.",
-                f"Ставка {fmt_rate(mr2)} · ГО {fmt_rub(calculator_position_margin.level2_margin_rub)}",
+                "MR2 · превышение LK1", fmt_rub(calculator_position_margin.level2_margin_rub),
+                f"{fmt_number(calculator_position_margin.level2_contracts, 0)} контр. · ставка {fmt_rate(mr2)}",
                 code="LEVEL 2", tone="amber",
             )
         with g3:
             metric_card(
-                "MR3 · превышение LK2", f"{fmt_number(calculator_position_margin.level3_contracts, 0)} контр.",
-                f"Ставка {fmt_rate(mr3)} · ГО {fmt_rub(calculator_position_margin.level3_margin_rub)}",
+                "MR3 · превышение LK2", fmt_rub(calculator_position_margin.level3_margin_rub),
+                f"{fmt_number(calculator_position_margin.level3_contracts, 0)} контр. · ставка {fmt_rate(mr3)}",
                 code="LEVEL 3", tone="neutral",
             )
 
