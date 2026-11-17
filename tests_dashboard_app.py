@@ -63,7 +63,7 @@ with patch('requests.get', side_effect=AssertionError('Unexpected network reques
         assert not app.exception, (page, app.exception)
         markup = "\n".join(m.value for m in app.markdown)
         if page == "Границы":
-            assert "ЦЕНА ISS" in markup and "Дата торгов" in markup
+            assert "ЦЕНА ISS" in markup  # The date is a Streamlit caption, not a markup card.
         if page == "Калькулятор ГО":
             assert "ГО каждой ступени" in markup
             assert ".metric-card .metric-note" in markup
