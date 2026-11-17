@@ -2860,10 +2860,19 @@ if active_page == "Спецрежимы НКЦ":
         with state_col:
             metric_card(
                 "Специальный режим действует",
-                "ДА" if not active_rows.empty else ("НЕ УКАЗАН" if not asset_in_calendar else "НЕТ"),
+                (
+                    "НЕТ ДАННЫХ" if special_calendar_df.empty
+                    else "ДА" if not active_rows.empty
+                    else "НЕ УКАЗАН" if not asset_in_calendar
+                    else "НЕТ"
+                ),
                 "По опубликованному календарю НКЦ",
                 code="SPECIAL RISK",
-                tone="amber" if not active_rows.empty else ("neutral" if not asset_in_calendar else "green"),
+                tone=(
+                    "neutral" if special_calendar_df.empty or not asset_in_calendar
+                    else "amber" if not active_rows.empty
+                    else "green"
+                ),
                 compact=True,
             )
         with count_col:
