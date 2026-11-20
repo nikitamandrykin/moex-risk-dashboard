@@ -480,6 +480,19 @@ def dashboard(
     }
 
 
+@app.get("/api/special")
+def special_lookup(
+    assetcode: str = Query(max_length=40),
+    check_at: str = Query(default="", max_length=40),
+):
+    snapshot = store.get()
+    code = assetcode.upper().strip()
+    if code not in safe_asset_list(snapshot, include_calendar=True):
+        raise HTTPException(status_code=404, detail="Базисный актив не найден")
+    result, _ = special_for_asset(snapshot["special"][0], code, parse_check_at(check_at))
+    return result
+
+
 @app.get("/api/methodology")
 def methodology():
     frame = pd.read_csv(DATA / "methodology.csv", sep=";", encoding="utf-8-sig", dtype=str).fillna("")
