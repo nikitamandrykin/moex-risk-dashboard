@@ -31,33 +31,6 @@ jobs:
         run: python tests_dashboard_v2.py && python tests_dashboard_app.py
       - name: Compile Python files
         run: python -m py_compile streamlit_app.py app.py services/*.py scripts/*.py
-
-      - name: FastAPI native-web migration smoke
-        if: github.event_name == 'pull_request' && github.head_ref == 'feat/fastapi-no-streamlit'
-        run: |
-          python -m pip install -r requirements-web.txt httpx
-          python -m py_compile web_app.py tests_fastapi.py
-          python tests_fastapi.py
-          node --check web_assets/app.js
-
-      - name: Build standalone Docker image without Streamlit
-        if: github.event_name == 'pull_request' && github.head_ref == 'feat/fastapi-no-streamlit'
-        run: docker build --pull --tag moex-native-web:ci .
-
-      - name: Smoke standalone HTTP server and verify runtime dependencies
-        if: github.event_name == 'pull_request' && github.head_ref == 'feat/fastapi-no-streamlit'
-        run: |
-          docker run -d --name moex-native-smoke -e PORT=8080 -p 18080:8080 moex-native-web:ci
-          for attempt in $(seq 1 25); do
-            if curl -fsS http://127.0.0.1:18080/health > /tmp/moex-health.json; then break; fi
-            sleep 1
-          done
-          grep -q '"framework":"FastAPI"' /tmp/moex-health.json
-          curl -fsS http://127.0.0.1:18080/ | grep -q 'MOEX Risk Dashboard'
-          curl -fsS http://127.0.0.1:18080/assets/app.js | grep -q 'loadDashboard'
-          curl -fsS http://127.0.0.1:18080/api/methodology | grep -q '"MR1"'
-          docker exec moex-native-smoke python -c "import importlib.util; assert importlib.util.find_spec('streamlit') is None"
-          docker stop moex-native-smoke
       - name: Audit updated official NCC evening XLSX
         if: github.event_name == 'pull_request' && github.head_ref == 'fix/ncc-evening-nov2026'
         run: python -m scripts.audit_ncc_evening_nov
@@ -67,3 +40,17 @@ jobs:
         continue-on-error: true
         run: python -m scripts.audit_live_iss
 
+
+      - name: Verify restored Streamlit image on Railway port 8080
+        if: github.event_name == 'pull_request' && github.head_ref == 'restore/streamlit-dashboard-20261120'
+        run: |
+          docker build --tag moex-streamlit-restore:ci .
+          docker run -d --name moex-streamlit-restore -e PORT=8080 -p 18080:8080 moex-streamlit-restore:ci
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:18080/_stcore/health | grep -qi 'ok'; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18080/_stcore/health | grep -qi 'ok'
+          curl -fsS http://127.0.0.1:18080/ | grep -qi 'streamlit'
+          docker exec moex-streamlit-restore python -c "import streamlit; print(streamlit.__version__)"
+          docker stop moex-streamlit-restore
